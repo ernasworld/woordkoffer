@@ -85,14 +85,14 @@ const endOfDay = t => addDays(t, 1) - 1;
 const dayKey = (t = Date.now()) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
-function toast(msg) {
+function toast(msg, ms = 2200) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
-  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('show'), 2200);
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('show'), ms);
 }
 
 // ---------- Opslag ----------
-const APP_VERSION = '1.1';
+const APP_VERSION = '1.1.1';
 // Instellingen van de maker. Leeg = staat uit.
 const MAKER = 'ernasworld';
 const SOURCE_URL = 'https://github.com/ernasworld/woordkoffer';
@@ -529,6 +529,11 @@ function freeAnswer(knew) {
 }
 
 // ---------- Uitspraak ----------
+const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/i.test(navigator.userAgent);
+// Op de iPhone volgt de voorleesstem de stille modus: staat die aan, dan hoor je niets. Een website kan dat niet omzeilen.
+const iosSilentTip = () => t('Hoor je niets? Zet de stille modus van je iPhone uit, met de knop aan de zijkant.');
+
 let voices = [];
 function loadVoices() { if ('speechSynthesis' in window) voices = speechSynthesis.getVoices(); }
 if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
@@ -594,11 +599,8 @@ document.addEventListener('touchend', () => {
   if (isIos && 'speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance(' '));
 }, { once: true, passive: true });
 
-// Geluid op de telefoon. Op Android regelen de volumeknoppen normaal het belvolume, behalve als er media speelt; de stem
-// gebruikt het mediavolume. Op de iPhone valt de stem stil als de stille modus aanstaat. Daarom speelt tijdens het oefenen
-// een stil geluid door: dan regelen de volumeknoppen het mediavolume, en op de iPhone telt het als "afspelen", zodat de
-// stem ook in de stille modus klinkt (net als een video).
-const isAndroid = /Android/i.test(navigator.userAgent);
+// Volumeknoppen op Android. Die regelen normaal het belvolume, behalve als er media speelt; de stem gebruikt het
+// mediavolume. Daarom speelt tijdens het oefenen een stil geluid door, zodat de volumeknoppen het volume van de stem regelen.
 let keepAlive = null;
 function silentWav() {
   const n = 8000, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
@@ -609,8 +611,7 @@ function silentWav() {
   return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
 }
 function audioOn() {
-  if (!(isAndroid || isIos) || keepAlive || !db.settings.autoSpeak) return;
-  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* oudere iOS */ }
+  if (!isAndroid || keepAlive || !db.settings.autoSpeak) return;
   keepAlive = new Audio(silentWav());
   keepAlive.loop = true;
   keepAlive.play().catch(() => { keepAlive = null; });
@@ -924,7 +925,6 @@ window.addEventListener('popstate', () => {
 // Vegen: op het overzicht naar rechts = menu open; in het menu naar links = dicht.
 // Op andere schermen: vanaf de linkerrand naar rechts vegen = terug. Niet in Safari op de iPhone zelf: die doet dat al.
 // Telefoons die zelf terugvegen (Android met veeggebaren) krijgen de veeg niet door aan de app, dus het gebeurt nooit dubbel.
-const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ownBackSwipe = isIos && navigator.standalone !== true;
 let touch = null;
 document.addEventListener('touchstart', e => { const p = e.touches[0]; touch = { x: p.clientX, y: p.clientY, t: Date.now() }; }, { passive: true });
@@ -1714,11 +1714,16 @@ document.addEventListener('click', e => {
     case 'toggle-sound': {
       const next = SOUND_MODES[(SOUND_MODES.indexOf(soundMode()) + 1) % SOUND_MODES.length];
       setSound(next);
-      toast(next === 'off' ? t('Voorlezen uit') : next === 'lang' ? t('Voorlezen: alleen {taal}', { taal: langName(curLang()) }) : t('Voorlezen: {taal} en Nederlands', { taal: langName(curLang()) }));
+      const msg = next === 'off' ? t('Voorlezen uit') : next === 'lang' ? t('Voorlezen: alleen {taal}', { taal: langName(curLang()) }) : t('Voorlezen: {taal} en Nederlands', { taal: langName(curLang()) });
+      if (next === 'off' || !isIos) toast(msg);
+      else toast(msg + '. ' + iosSilentTip(), 6000);
       render();
       break;
     }
-    case 'set-sound': setSound(el.dataset.key); render(); break;
+    case 'set-sound':
+      setSound(el.dataset.key); render();
+      if (isIos && el.dataset.key !== 'off') toast(iosSilentTip(), 6000);
+      break;
     case 'speak-text': speak(el.dataset.text, el.dataset.lang); break;
     case 'undo': undo(); break;
     case 'stats-period': statsState.period = el.dataset.key; render(); break;

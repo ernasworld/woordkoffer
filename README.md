@@ -1,4 +1,4 @@
-# Woordkoffer 1.1
+# Woordkoffer 1.1.1
 
 Pak je woorden in voor op reis. Woordkoffer is een flashcard-app om de woorden van een taal te leren, met herhaling op het juiste moment. De naam knipoogt naar het spel "Ik ga op reis en ik neem mee".
 
@@ -22,11 +22,11 @@ Te gebruiken op **https://woordkoffer.wijgaanopreisennemenmee.nl**.
 - **Makkelijke woorden:** "Ken ik al" bij een nieuw woord verbergt het; "Makkelijk" bij een woord dat je aan het leren bent geeft minstens 60 dagen pauze. Verborgen woorden kun je per lijst doorkijken.
 - **Woorden die je niet wilt leren:** het knopje "✕ Weg" op de kaart.
 - **Vrij oefenen:** een hele lijst door zonder dat het meetelt, handig om samen te oefenen.
-- **Voorlezen** met de stem van de telefoon (standaard een vrouwenstem, als die op het apparaat staat), met het luidsprekertje bovenin het oefenscherm in drie standen: uit, alleen de taal die je leert, of ook de Nederlandse vraag (handig om samen te oefenen, bijvoorbeeld in de auto).
+- **Voorlezen** met de stem van de telefoon (standaard een vrouwenstem, als die op het apparaat staat), met het luidsprekertje bovenin het oefenscherm in drie standen: uit, alleen de taal die je leert, of ook de Nederlandse vraag (handig om samen te oefenen, bijvoorbeeld in de auto). Op de iPhone klinkt de stem niet als de stille modus aanstaat; zet je het voorlezen aan, dan geeft de app daarover een tip.
 - **Weergave:** automatisch (zoals de telefoon), licht of donker.
 - **Menu:** een zijlade via ☰. Openen door op het overzicht naar rechts te vegen; sluiten met ✕, de terugknop van de telefoon, naar links vegen of ernaast tikken.
 - **Terug:** het overzicht is het beginpunt. "Terug" gaat altijd een stap terug, en terug op het overzicht sluit de app. Vanaf de linkerrand naar rechts vegen is ook terug (behalve in Safari, dat doet dat zelf).
-- **Volumeknoppen:** op Android regelen de volumeknoppen tijdens het oefenen het volume van de stem. Op de iPhone klinkt de stem ook als de stille modus aanstaat.
+- **Volumeknoppen:** op Android regelen de volumeknoppen tijdens het oefenen het volume van de stem.
 - **Tikfeedback:** knoppen geven zichtbaar mee als je erop drukt.
 - **Feedback:** een knop naar een formulier (als `FEEDBACK_URL` is ingevuld).
 - **Taal van de app:** Nederlands, of de hele app in de taal die je leert (nu Spaans). Schakelaar in het menu en bij Instellingen.

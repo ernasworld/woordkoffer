@@ -34,6 +34,7 @@ window.UI_TEXT = {
     '{taal} + NL': '{taal} + NL',
     'Voorlezen: {stand}. Tik om te wisselen.': 'Lectura: {stand}. Toca para cambiar.',
     'Voorlezen: uit, alleen de taal, of de taal en het Nederlands': 'Lectura: desactivada, solo el idioma, o el idioma y el neerlandés',
+    'Hoor je niets? Zet de stille modus van je iPhone uit, met de knop aan de zijkant.': '¿No oyes nada? Desactiva el modo silencio del iPhone con el botón lateral.',
     'Voorlezen uit': 'Lectura desactivada',
     'Voorlezen: alleen {taal}': 'Lectura: solo {taal}',
     'Voorlezen: {taal} en Nederlands': 'Lectura: {taal} y neerlandés',
