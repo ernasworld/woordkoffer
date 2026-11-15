@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Woordkoffer – geluidstest</title>
+<style>
+  body { font: 17px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 24px 16px; background: #faf6ef; color: #1b1714; }
+  main { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 8px; }
+  ol { padding-left: 20px; }
+  button { display: block; width: 100%; margin: 12px 0; padding: 16px; font: inherit; font-weight: 600; border: 0; border-radius: 12px; background: #1b54b8; color: #fff; }
+  button:active { transform: scale(.97); }
+  p.small { color: #6b625a; font-size: 15px; }
+  @media (prefers-color-scheme: dark) { body { background: #1b1714; color: #f3ece2; } p.small { color: #b3a89c; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Geluidstest voor de iPhone</h1>
+  <ol>
+    <li>Zet de stille modus <strong>aan</strong> (schakelaar aan de zijkant op rood/oranje).</li>
+    <li>Zet het volume omhoog.</li>
+    <li>Tik op knop 1 en daarna op knop 2. Laat weten wat je hoort.</li>
+  </ol>
+  <button id="file">1. Speel een geluidje af (geluidsbestand)</button>
+  <button id="voice">2. Laat de stem iets zeggen</button>
+  <p class="small">Knop 1 speelt een kort melodietje als geluidsbestand. Knop 2 gebruikt de voorleesstem van de iPhone, zoals Woordkoffer nu doet.</p>
+</main>
+<script>
+  // Een kort melodietje als WAV-bestand (drie tonen), gemaakt in de browser.
+  function melody() {
+    const rate = 22050, notes = [523, 659, 784], len = Math.floor(rate * 0.25), n = len * notes.length;
+    const b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+    const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+    notes.forEach((f, k) => {
+      for (let i = 0; i < len; i++) {
+        const fade = Math.min(1, i / 400, (len - i) / 400);
+        v.setInt16(44 + (k * len + i) * 2, Math.sin(2 * Math.PI * f * i / rate) * 0.5 * fade * 32767, true);
+      }
+    });
+    return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+  }
+  const sound = new Audio(melody());
+  document.getElementById('file').onclick = () => { sound.currentTime = 0; sound.play(); };
+  document.getElementById('voice').onclick = () => {
+    const u = new SpeechSynthesisUtterance('¡Hola! Buen viaje.');
+    u.lang = 'es-ES';
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  };
+</script>
+</body>
+</html>
