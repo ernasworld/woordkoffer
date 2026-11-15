@@ -4,8 +4,8 @@
 window.STARTER_LISTS = [
   {
     key: 'werkwoorden', lang: 'es', name: 'Werkwoorden (top 100)',
-    // Gebaseerd op frequentielijsten van het Spaans (o.a. Davies, A Frequency Dictionary of Spanish), aangevuld met een paar
-    // alledaagse werkwoorden. Notitie: de ik-vorm als die onregelmatig is.
+    // Veelgebruikte Spaanse werkwoorden, zelf samengesteld, met een paar alledaagse werkwoorden erbij.
+    // Notitie: de ik-vorm als die onregelmatig is.
     words: [
       ['ser', 'zijn (blijvend: wie of wat)', 'onregelmatig: soy, eres, es'],
       ['estar', 'zijn (toestand of plek)', 'onregelmatig: estoy, estás, está'],

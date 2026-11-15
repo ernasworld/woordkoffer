@@ -1,5 +1,5 @@
 'use strict';
-/* Woordkoffer 1.0 – flashcards om de woorden van een taal te leren, met herhaling op het juiste moment.
+/* Woordkoffer – flashcards om de woorden van een taal te leren, met herhaling op het juiste moment.
    Alle gegevens staan in de browser (localStorage) op het apparaat zelf. */
 
 // ---------- Constanten ----------
@@ -55,7 +55,7 @@ const deckName = d => {
   return s && s.name === d.name ? t(d.name) : d.name;
 };
 
-// Tempo per lijst: hoeveel nieuwe woorden per keer oefenen (elk woord komt in beide richtingen).
+// Tempo per lijst: hoeveel nieuwe woorden per dag (elk woord komt in beide richtingen).
 // De groeifactoren zijn de standaardwaarden van Anki.
 const PRESETS = {
   weinig: { label: 'Weinig', newWords: 10, maxReviews: 200 },
@@ -92,7 +92,12 @@ function toast(msg) {
 }
 
 // ---------- Opslag ----------
-const APP_VERSION = '1.0';
+const APP_VERSION = '1.1';
+// Instellingen van de maker. Leeg = staat uit.
+const MAKER = 'ernasworld';
+const SOURCE_URL = 'https://github.com/ernasworld/woordkoffer';
+const FEEDBACK_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSctxD9dJ6HfMhewnEC6IKhJu7M7MbdgveobdPjtM1W_Q_j6zQ/viewform';   // link naar het Google-formulier voor feedback
+const GOATCOUNTER = 'woordkoffer';    // code bij GoatCounter: telt anoniem hoe vaak de app wordt geopend
 const STORE_KEY = 'woordkoffer';
 const DATA_VERSION = 2;
 const STARTERS = window.STARTER_LISTS || [];
@@ -259,10 +264,28 @@ function fmtWait(st) {
   return t('{n} jaar', { n: (d / 365).toFixed(1).replace('.0', '').replace('.', loc() === 'nl-NL' || loc() === 'es-ES' ? ',' : '.') });
 }
 
-// Nieuwe kaarten voor deze keer oefenen. Elk nieuw woord komt in beide richtingen: eerst taal → Nederlands,
+// ---------- Nieuwe woorden per dag ----------
+// Per lijst krijg je per dag een vast aantal nieuwe woorden. Stop je halverwege en ga je dezelfde dag verder,
+// dan ga je door met dezelfde woorden; de volgende dag komen er nieuwe bij. Wat je vandaag begon, volgt uit de
+// vastgelegde antwoorden: een woord dat vandaag voor het eerst beantwoord is (niet met Ken ik al of Weg).
+function newStartedToday(deck) {
+  const sod = startOfDay(Date.now()), first = new Map();
+  for (const e of db.events) {
+    if (e[EV.deck] !== deck.id || e[EV.grade] > 4 || e[EV.kind] >= 8) continue;
+    if (!first.has(e[EV.card])) first.set(e[EV.card], e[EV.t]);
+  }
+  let n = 0;
+  for (const tm of first.values()) if (tm >= sod) n++;
+  return n;
+}
+// Ben je klaar en wil je verder, dan komen er extra nieuwe woorden bij voor vandaag (deck.extra).
+const extraToday = deck => deck.extra?.day === dayKey() ? deck.extra.n : 0;
+const newLeftToday = deck => Math.max(0, optsOf(deck).newWords + extraToday(deck) - newStartedToday(deck));
+
+// Nieuwe kaarten voor vandaag. Elk nieuw woord komt in beide richtingen: eerst taal → Nederlands,
 // en een paar kaarten later Nederlands → taal. Een richting die nog openstaat van een eerder woord kost geen nieuw woord.
 const LAG = 2;
-function planNew(deck, limit = optsOf(deck).newWords) {
+function planNew(deck, limit = newLeftToday(deck)) {
   const dirs = dirsOf(deck), whole = [], out = [];
   for (const c of activeCards(deck)) {
     const open = dirs.filter(d => isNewSt(c.p?.[d]));
@@ -305,11 +328,20 @@ function findRef(ref) {
 }
 function stateOf(ref) { return findRef(ref).card?.p?.[ref.dir] || { s: 'new' }; }
 
-// newLimit: aantal nieuwe woorden in totaal (bij "Doorgaan"); anders het tempo van elke lijst.
-function startSession(target, newLimit) {
+// Extra nieuwe woorden voor vandaag ("Nog 20 nieuwe woorden"). Bij "alles oefenen" verdeeld over de lijsten
+// die nog nieuwe woorden hebben, samen precies n.
+function addExtra(target, n) {
+  const decks = (target === 'all' ? langDecks() : [getDeck(target)]).filter(d => d && deckCounts(d).newWords > 0);
+  decks.forEach((d, i) => {
+    const share = Math.floor(n / decks.length) + (i < n % decks.length ? 1 : 0);
+    if (share) d.extra = { day: dayKey(), n: extraToday(d) + share };
+  });
+  save();
+}
+function startSession(target, extraWords = 0) {
   const decks = target === 'all' ? langDecks() : db.decks.filter(d => d.id === target);
   const eod = endOfDay(Date.now());
-  const withNew = decks.filter(d => deckCounts(d).newWords > 0);
+  if (extraWords) addExtra(target, extraWords);
   const learn = [], review = [], fresh = [];
   for (const deck of decks) {
     const dRev = [];
@@ -320,8 +352,7 @@ function startSession(target, newLimit) {
       else learn.push(ref);
     }
     review.push(...shuffle(dRev).slice(0, optsOf(deck).maxReviews));
-    const limit = newLimit == null ? optsOf(deck).newWords : (withNew.includes(deck) ? Math.ceil(newLimit / withNew.length) : 0);
-    fresh.push(...planNew(deck, limit));
+    fresh.push(...planNew(deck));
   }
   // Eerst wat nog aan het leren was, daarna herhalingen en nieuwe woorden door elkaar (2 : 1).
   const queue = shuffle(learn), rev = shuffle(review);
@@ -348,10 +379,14 @@ function answersLeft(ref) {
   return 1;
 }
 // Woorden klaar / totaal, en een schatting van de tijd die nog nodig is.
+// Klaar telt alles wat je vandaag in deze lijst(en) oefende, ook in een eerdere ronde van vandaag.
 function roundProgress() {
   const s = session, rest = [s.current, ...s.queue].filter(Boolean);
   const left = new Set(rest.map(wordKey));
-  const done = [...s.seen].filter(k => !left.has(k) && !s.skipped.has(k)).length;
+  const ids = new Set((s.target === 'all' ? langDecks() : [getDeck(s.target)].filter(Boolean)).map(d => d.id)), sod = startOfDay(Date.now());
+  const seen = new Set(s.seen);
+  for (const e of db.events) if (e[EV.t] >= sod && ids.has(e[EV.deck]) && e[EV.kind] < 8 && e[EV.grade] !== 6) seen.add(e[EV.deck] + '|' + e[EV.card]);
+  const done = [...seen].filter(k => !left.has(k) && !s.skipped.has(k)).length;
   const ms = db.events.slice(-200).map(e => e[EV.ms]).filter(x => x > 500).sort((a, b) => a - b);
   const per = ms.length ? ms[Math.floor(ms.length / 2)] : 8000;   // mediaan van je eigen antwoordtijd
   const answers = rest.reduce((n, r) => n + answersLeft(r), 0);
@@ -497,19 +532,91 @@ function freeAnswer(knew) {
 let voices = [];
 function loadVoices() { if ('speechSynthesis' in window) voices = speechSynthesis.getVoices(); }
 if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+// Standaard een vrouwenstem. De telefoon zegt niet of een stem een vrouw of man is, dus de app herkent de bekende
+// vrouwenstemmen aan hun naam (iPhone, Mac, Windows, Chrome). Een betere versie (Premium, Enhanced) gaat voor.
+// Staat er geen bekende vrouwenstem op het apparaat, dan de eerste stem voor de taal, behalve de robotachtige
+// Eloquence-stemmen. Op Android kiest de app niet: daar gebruikt Chrome de stem die op de telefoon is ingesteld.
+const FEMALE_VOICES = {
+  es: ['monica', 'paulina', 'marisol', 'helena', 'laura', 'elvira', 'dalia', 'sabina', 'google espanol'],
+  nl: ['claire', 'ellen', 'fenna', 'colette', 'hanna', 'google nederlands'],
+  sv: ['alva', 'klara', 'hedda', 'sofie', 'google svenska'],
+  it: ['alice', 'federica', 'elsa', 'isabella', 'paola', 'google italiano'],
+  fr: ['audrey', 'amelie', 'marie', 'aurelie', 'hortense', 'julie', 'denise', 'google francais'],
+  pt: ['joana', 'catarina', 'luciana', 'fernanda', 'raquel', 'helia', 'maria', 'francisca'],
+  de: ['anna', 'petra', 'helena', 'hedda', 'katja', 'amala', 'google deutsch'],
+  en: ['kate', 'serena', 'stephanie', 'martha', 'hazel', 'susan', 'libby', 'sonia', 'google uk english female', 'samantha', 'moira', 'tessa', 'karen', 'fiona'],
+};
+const ELOQUENCE = ['eddy', 'flo', 'grandma', 'grandpa', 'reed', 'rocko', 'sandy', 'shelley'];
+const plain = x => (x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const nameHas = (v, names) => names.some(n => new RegExp(`(^|[^a-z])${n}([^a-z]|$)`).test(plain(v.name)));
+// Chrome op de computer speelt een stem met een accent in de naam (Mónica, Amélie) af met de standaardstem van de
+// computer, dus met een Nederlandse uitspraak. Daar daarom eerst de Google-stemmen (online), dan stemmen zonder accent.
+const chromeDesktop = /Chrome\//.test(navigator.userAgent) && !/Android|iPhone|iPad/.test(navigator.userAgent);
+const trusted = list => {
+  if (!chromeDesktop) return list;
+  const google = navigator.onLine ? list.filter(v => /^google/i.test(v.name)) : [];
+  const safe = list.filter(v => !/^google/i.test(v.name) && /^[\x20-\x7e]*$/.test(v.name));
+  return [...google, ...safe];
+};
 function voiceFor(tts) {
-  const base = tts.split('-')[0];
-  return voices.find(v => v.lang === tts) || voices.find(v => v.lang?.replace('_', '-').startsWith(base)) || null;
+  const base = tts.split('-')[0], female = FEMALE_VOICES[base] || [];
+  const exact = voices.filter(v => v.lang?.replace('_', '-') === tts);
+  const same = voices.filter(v => v.lang?.replace('_', '-').startsWith(base));
+  const best = list => list.find(v => /premium|enhanced|verbeterd|mejorada|förbättrad/i.test(v.name)) || list[0];
+  const her = list => trusted(list.filter(v => nameHas(v, female)));
+  const human = list => trusted(list.filter(v => !nameHas(v, ELOQUENCE)));
+  return best(her(exact)) || best(her(same)) || human(exact)[0] || human(same)[0] || exact[0] || same[0] || null;
 }
+const noVoiceWarned = new Set();
 function speak(text, lang = curLang()) {
   if (!('speechSynthesis' in window) || !text) return;
-  speechSynthesis.cancel();
-  const tts = (LANGS[lang] || LANGS.es).tts, voice = voiceFor(tts);
+  audioOn();
+  const tts = lang === 'nl' ? 'nl-NL' : (LANGS[lang] || LANGS.es).tts, voice = voiceFor(tts);
   const u = new SpeechSynthesisUtterance(text.replace(/[¿¡]/g, ''));
   u.lang = voice?.lang || tts; if (voice) u.voice = voice;
   u.rate = db.settings.rate || 0.9;
-  speechSynthesis.speak(u);
+  const playing = on => document.querySelectorAll('.speak').forEach(b => b.classList.toggle('playing', on));
+  u.onstart = () => playing(true);
+  u.onend = () => playing(false);
+  u.onerror = e => { playing(false); if (!['interrupted', 'canceled'].includes(e.error)) toast(t('De stem doet het niet. Staat het geluid van je telefoon aan, en de stille modus uit?')); };
+  if (voices.length && !voice && !noVoiceWarned.has(lang)) {
+    noVoiceWarned.add(lang);
+    toast(t('Op dit apparaat is geen stem voor het {taal} gevonden.', { taal: uiLang() === 'es' ? langName(lang).toLowerCase() : langName(lang) }));
+  }
+  // Op de iPhone gaat een nieuwe zin soms verloren als hij direct na cancel() komt; daarom dan even wachten.
+  if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(() => speechSynthesis.speak(u), 150); }
+  else speechSynthesis.speak(u);
 }
+
+// De iPhone laat de stem pas praten na een eerste tik. Een lege zin bij de eerste tik zet hem vrij, zodat ook het
+// automatisch voorlezen (dat niet direct uit een tik komt) werkt.
+document.addEventListener('touchend', () => {
+  if (isIos && 'speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance(' '));
+}, { once: true, passive: true });
+
+// Geluid op de telefoon. Op Android regelen de volumeknoppen normaal het belvolume, behalve als er media speelt; de stem
+// gebruikt het mediavolume. Op de iPhone valt de stem stil als de stille modus aanstaat. Daarom speelt tijdens het oefenen
+// een stil geluid door: dan regelen de volumeknoppen het mediavolume, en op de iPhone telt het als "afspelen", zodat de
+// stem ook in de stille modus klinkt (net als een video).
+const isAndroid = /Android/i.test(navigator.userAgent);
+let keepAlive = null;
+function silentWav() {
+  const n = 8000, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+  const w = (o, txt) => [...txt].forEach((c, i) => { b[o + i] = c.charCodeAt(0); });
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+  v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44);
+  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+function audioOn() {
+  if (!(isAndroid || isIos) || keepAlive || !db.settings.autoSpeak) return;
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* oudere iOS */ }
+  keepAlive = new Audio(silentWav());
+  keepAlive.loop = true;
+  keepAlive.play().catch(() => { keepAlive = null; });
+  if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: 'Woordkoffer' });
+}
+function audioOff() { if (keepAlive) { keepAlive.pause(); URL.revokeObjectURL(keepAlive.src); keepAlive = null; } }
 
 // ---------- Importeren ----------
 const SEPARATORS = ['\t', ';', ' = ', ' – ', ' — ', ' - ', '=', ':', ','];
@@ -570,8 +677,40 @@ function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   return { name: parts[0] || 'home', a: parts[1], b: parts[2] };
 }
-const go = hash => { location.hash = hash; };
+// ---------- Navigeren ----------
+// Het overzicht is het beginpunt. Elke stap verder komt in de geschiedenis, "Terug" gaat een stap terug,
+// en de terugknop van de telefoon op het overzicht sluit de app. Zo loop je nooit heen en weer.
+// history.state.d = hoeveel stappen je van het overzicht af bent; .from = het scherm waar je vandaan kwam.
+const here = () => (location.hash && location.hash !== '#' ? location.hash : '#/');
+const depth = () => history.state?.d || 0;
+function go(hash) {
+  if (hash === '#/' || hash === '#' || hash === '') return goHome();
+  if (hash === here()) return render();
+  history.pushState({ d: depth() + 1, from: here() }, '', hash);
+  render();
+}
+function goHome() {
+  const d = depth();
+  if (d > 0) history.go(-d);
+  else { history.replaceState({ d: 0 }, '', '#/'); render(); }
+}
+// Terug naar het vorige scherm; is dat niet het verwachte scherm, dan dit scherm vervangen (geen extra stap).
+function goBack(target) {
+  if (target === '#/' && depth() <= 1) return depth() ? history.back() : goHome();
+  if (depth() > 0 && history.state?.from === target) return history.back();
+  if (target === '#/') return goHome();
+  history.replaceState({ d: depth(), from: '#/' }, '', target);
+  render();
+}
+// Na opslaan of toevoegen: dit scherm vervangen door het doel.
+function replaceWith(target) {
+  if (target === '#/') return goHome();
+  history.replaceState({ d: depth(), from: history.state?.from || '#/' }, '', target);
+  render();
+}
 const ICONS = {
+  chat: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H10l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+  close: '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
   menu: '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
   home: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
   play: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
@@ -580,10 +719,24 @@ const ICONS = {
   box: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="4" y="8" width="16" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 8V6.5A1.5 1.5 0 0 1 10.5 5h3A1.5 1.5 0 0 1 15 6.5V8" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
   settings: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
 };
-// Knop om het geluid tijdens het oefenen aan of uit te zetten.
-const soundBtn = () => `<button class="iconbtn" data-act="toggle-sound" aria-label="${t('Geluid aan of uit')}" title="${t('Geluid aan of uit')}" aria-pressed="${db.settings.autoSpeak}">${db.settings.autoSpeak ? '🔊 ' + t('Aan') : '🔇 ' + t('Uit')}</button>`;
+// Voorlezen heeft drie standen: uit, alleen de taal die je leert, of die taal plus de Nederlandse vraag (handig samen, in de auto).
+const SOUND_MODES = ['off', 'lang', 'both'];
+const soundMode = () => !db.settings.autoSpeak ? 'off' : db.settings.speakNl ? 'both' : 'lang';
+const soundLabel = mode => mode === 'off' ? t('Uit') : mode === 'lang' ? langName(curLang()) : t('{taal} + NL', { taal: langName(curLang()) });
+function setSound(mode) {
+  db.settings.autoSpeak = mode !== 'off';
+  db.settings.speakNl = mode === 'both';
+  save();
+  if (mode === 'off') { if ('speechSynthesis' in window) speechSynthesis.cancel(); audioOff(); }
+  const f = currentFlash();
+  lastSpoken = f ? f.key + f.revealed : lastSpoken;   // niet meteen opnieuw voorlezen bij omschakelen
+}
+const soundBtn = () => {
+  const m = soundMode();
+  return `<button class="iconbtn" data-act="toggle-sound" aria-label="${t('Voorlezen: {stand}. Tik om te wisselen.', { stand: soundLabel(m) })}" title="${t('Voorlezen: uit, alleen de taal, of de taal en het Nederlands')}">${m === 'off' ? '🔇' : '🔊'} ${esc(soundLabel(m))}</button>`;
+};
 const topbar = (back, title = '', right = '') =>
-  `<div class="topbar">${back ? `<button class="iconbtn" data-go="${back}">‹ ${t('Terug')}</button>` : ''}<div class="title">${title}</div>${right}</div>`;
+  `<div class="topbar">${back ? `<button class="iconbtn" data-back="${back}">‹ ${t('Terug')}</button>` : ''}<div class="title">${title}</div>${right}</div>`;
 
 // ---------- Tellen in woorden ----------
 // Een woord heeft twee kaarten (taal → NL en NL → taal). Voor jou telt het woord, niet hoeveel kaarten er voorbijkwamen.
@@ -599,8 +752,8 @@ function wordsIn(events) {
 }
 
 // Woorden die je vandaag hebt geoefend. Uit de vastgelegde antwoorden, en uit de stand van elk woord:
-// wanneer een woord het laatst beantwoord is, volgt uit de pauze. Zo tellen ook woorden mee die je
-// eerder vandaag met een vorige versie van de app oefende. Van die woorden is niet bekend of ze meteen goed waren.
+// wanneer een woord het laatst beantwoord is, volgt uit de pauze. Zo tellen ook woorden mee waarvan geen antwoorden
+// zijn vastgelegd. Van die woorden is niet bekend of ze meteen goed waren.
 function practicedToday(decks) {
   const sod = startOfDay(Date.now()), eod = endOfDay(Date.now()), ids = new Set(decks.map(d => d.id));
   const words = new Map();   // woord → true (meteen goed), false (met een fout), null (onbekend)
@@ -634,7 +787,7 @@ function deckWords(d) {
     else { w.learned++; if (dirsOf(d).some(x => c.p?.[x]?.due <= eod)) w.due++; }
   }
   w.total = w.new + w.busy + w.learned;
-  w.newNow = Math.min(w.new, optsOf(d).newWords);
+  w.newNow = Math.min(w.new, newLeftToday(d));
   w.ready = w.newNow + w.busy + w.due;
   return w;
 }
@@ -674,17 +827,26 @@ function uiToggle() {
     </div>`;
 }
 
+// Oefenknop: staat er iets klaar, dan "Oefen". Ben je klaar voor vandaag maar zijn er nog nieuwe woorden,
+// dan "Nog 20 nieuwe woorden" (je eigen tempo), zodat je meteen verder kunt.
+function practiceBtn(target, ready, newLeft, n, label, cls = '') {
+  n = n || 20;
+  if (ready) return `<button class="btn primary ${cls}" data-go="#/study/${esc(target)}">${label}</button>`;
+  if (newLeft) return `<button class="btn primary ${cls}" data-act="extra" data-id="${esc(target)}" data-n="${n}">${tn(Math.min(n, newLeft), 'Nog {n} nieuw woord', 'Nog {n} nieuwe woorden')}</button>`;
+  return `<button class="btn ${cls}" disabled>${t('Alles gedaan')}</button>`;
+}
+
 function viewHome() {
-  let all = 0;
+  let all = 0, newAll = 0;
   const L = LANGS[curLang()];
   const rows = langDecks().map(d => {
-    const todo = deckWords(d).ready; all += todo;
+    const w = deckWords(d); all += w.ready; newAll += w.new;
     return `<div class="card deckcard">
       <div class="name">${esc(deckName(d))}</div>
       <div class="info">${deckSummary(d)}</div>
       <div class="deck-actions">
         <button class="btn" data-go="#/deck/${esc(d.id)}">${t('Bekijk lijst')}</button>
-        <button class="btn ${todo ? 'primary' : ''}" data-go="#/study/${esc(d.id)}" ${todo ? '' : 'disabled'}>${t('Oefen')}</button>
+        ${practiceBtn(d.id, w.ready, w.new, optsOf(d).newWords, t('Oefen'))}
       </div>
     </div>`;
   }).join('');
@@ -698,8 +860,7 @@ function viewHome() {
     </header>
     <p class="muted">${today.words ? todayText(today) : t('Vandaag nog niet geoefend.')}</p>
     <div class="hero">
-      <button class="btn primary block" data-go="#/study/all" ${all ? '' : 'disabled'}>
-        ${all ? tn(all, 'Alles oefenen ({n} woord)', 'Alles oefenen ({n} woorden)') : t('Alles gedaan')}</button>
+      ${practiceBtn('all', all, newAll, 20, tn(all, 'Alles oefenen ({n} woord)', 'Alles oefenen ({n} woorden)'), 'block')}
     </div>
     <h2>${t('Woordenlijsten')}</h2>
     <div class="list">${rows || `<div class="card"><p>${t('Nog geen lijsten voor {taal}.', { taal: langName(curLang()) })}</p><p class="muted small">${t('Maak een lijst door woorden te plakken, met {taal} links en {nl} rechts.', { taal: langName(curLang()), nl: nlName() })}</p></div>`}</div>
@@ -715,10 +876,11 @@ function viewHome() {
 let menuOpen = false, pendingGo = null;
 function menuHtml() {
   const L = LANGS[curLang()];
-  const here = location.hash && location.hash !== '#' ? location.hash : '#/';
-  const item = (hash, icon, label) => `<button class="menu-item ${here === hash ? 'on' : ''}" data-menu-go="${hash}" ${here === hash ? 'aria-current="page"' : ''}>${ICONS[icon]}<span>${label}</span></button>`;
+  const cur = here();
+  const item = (hash, icon, label) => `<button class="menu-item ${cur === hash ? 'on' : ''}" data-menu-go="${hash}" ${cur === hash ? 'aria-current="page"' : ''}>${ICONS[icon]}<span>${label}</span></button>`;
   return `
-    <div class="menu-head">${LOGO_SVG}<div><strong>Woordkoffer</strong><div class="motto" lang="${curLang()}">${esc(L.motto)}</div></div></div>
+    <div class="menu-head">${LOGO_SVG}<div><strong>Woordkoffer</strong><div class="motto" lang="${curLang()}">${esc(L.motto)}</div></div>
+      <button class="iconbtn icon menu-close" data-act="menu-close" aria-label="${t('Menu sluiten')}" title="${t('Menu sluiten')}">${ICONS.close}</button></div>
     <div class="menu-section">
       <div class="menu-label">${t('Ik leer')}</div>
       ${langPicker()}
@@ -732,8 +894,9 @@ function menuHtml() {
       ${item('#/import/new', 'plus', t('Nieuwe lijst'))}
       ${STARTERS.some(s => (s.lang || 'es') === curLang()) ? item('#/library', 'box', t('Kant-en-klare lijsten')) : ''}
       ${item('#/settings', 'settings', t('Instellingen'))}
+      ${FEEDBACK_URL ? `<a class="menu-item" href="${esc(FEEDBACK_URL)}" target="_blank" rel="noopener">${ICONS.chat}<span>${t('Feedback geven')}</span></a>` : ''}
     </div>
-    <div class="menu-foot muted small">Woordkoffer ${APP_VERSION}</div>`;
+    <div class="menu-foot muted small">${creditHtml()}</div>`;
 }
 function drawMenu() {
   const nav = document.getElementById('drawer');
@@ -743,7 +906,7 @@ function drawMenu() {
 function openMenu() {
   if (menuOpen) return;
   menuOpen = true;
-  history.pushState({ menu: 1 }, '');
+  history.pushState({ menu: 1, d: depth(), from: history.state?.from }, '');
   drawMenu();
   document.body.classList.add('menu-open');
   document.getElementById('drawer').setAttribute('aria-hidden', 'false');
@@ -751,16 +914,18 @@ function openMenu() {
 }
 function closeMenu() { if (menuOpen) history.back(); }   // de terugknop sluit het menu ook: één weg
 window.addEventListener('popstate', () => {
-  if (!menuOpen) return;
+  if (!menuOpen) return render();
   menuOpen = false;
   document.body.classList.remove('menu-open');
   document.getElementById('drawer').setAttribute('aria-hidden', 'true');
-  if (pendingGo) { const h = pendingGo; pendingGo = null; if (h !== location.hash && !(h === '#/' && !location.hash)) go(h); }
+  if (pendingGo) { const h = pendingGo; pendingGo = null; if (h !== here()) go(h); }
 });
 
 // Vegen: op het overzicht naar rechts = menu open; in het menu naar links = dicht.
-// Op een iPhone met de app op het beginscherm is er geen terugveeg van het systeem; daar betekent naar rechts vegen vanaf de rand "terug".
-const isIosApp = navigator.standalone === true;
+// Op andere schermen: vanaf de linkerrand naar rechts vegen = terug. Niet in Safari op de iPhone zelf: die doet dat al.
+// Telefoons die zelf terugvegen (Android met veeggebaren) krijgen de veeg niet door aan de app, dus het gebeurt nooit dubbel.
+const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const ownBackSwipe = isIos && navigator.standalone !== true;
 let touch = null;
 document.addEventListener('touchstart', e => { const p = e.touches[0]; touch = { x: p.clientX, y: p.clientY, t: Date.now() }; }, { passive: true });
 document.addEventListener('touchend', e => {
@@ -770,7 +935,10 @@ document.addEventListener('touchend', e => {
   if (!quick || Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
   if (menuOpen) { if (dx < 0) closeMenu(); return; }
   if (dx > 0 && route().name === 'home' && start > 24) openMenu();                  // niet vanaf de rand: daar zit op Android het systeem-terug
-  else if (dx > 0 && route().name !== 'home' && isIosApp && start < 30) history.back();
+  else if (dx > 0 && route().name !== 'home' && !ownBackSwipe && start < 40) {
+    const back = $app.querySelector('[data-back]');
+    if (back) goBack(back.dataset.back); else goHome();
+  }
 }, { passive: true });
 
 function flashHtml({ dir, card, revealed, sub, removable, deck, skippable, dots = '' }) {
@@ -780,7 +948,7 @@ function flashHtml({ dir, card, revealed, sub, removable, deck, skippable, dots 
   return `<div class="card flash" data-act="${revealed ? 'speak' : 'reveal'}">
       <div class="dir">${dirLabel(dir, deck)}${sub ? ' · ' + esc(sub) : ''}</div>
       ${dots}
-      ${db.settings.autoSpeak && (dir === 'toNl' || revealed) ? `<button class="iconbtn speak" data-act="speak" aria-label="${t('Spreek uit')}">🔊</button>` : ''}
+      ${db.settings.autoSpeak && (dir === 'toNl' || revealed || db.settings.speakNl) ? `<button class="iconbtn speak" data-act="speak" aria-label="${t('Spreek uit')}">🔊</button>` : ''}
       <div class="front" lang="${dir === 'toNl' ? lc : 'nl'}">${esc(front)}</div>
       ${revealed ? `<hr><div class="back" lang="${dir === 'fromNl' ? lc : 'nl'}">${esc(back)}</div>${card.note ? `<div class="note">${esc(card.note)}</div>` : ''}` : ''}
       ${skippable ? `<button class="mini-skip" data-act="skip-word" title="${t('Nu overslaan; komt de volgende keer terug')}">↷ ${t('Overslaan')}</button>` : ''}
@@ -798,12 +966,13 @@ function viewStudy(target) {
     const mins = Math.round(mine.reduce((n, e) => n + e[EV.ms], 0) / 60000);
     const decks = target === 'all' ? langDecks() : [getDeck(target)].filter(Boolean);
     const moreNew = decks.reduce((n, d) => n + deckCounts(d).newWords, 0);
+    const moreN = (target === 'all' ? 20 : optsOf(decks[0]).newWords) || 20;   // je eigen tempo
     return `${back}<div class="done">
       <div class="big">🎉</div>
       <h1>${mine.length ? LANGS[curLang()].bravo : t('Niets te doen')}</h1>
       <p class="muted">${mine.length ? tn(mw.words, '{n} woord geoefend, {c} meteen goed.', '{n} woorden geoefend, {c} meteen goed.', { c: mw.clean }) + (mins ? ' ' + tn(mins, 'In {n} minuut.', 'In {n} minuten.') : '') : t('Er staat nu niets klaar.')}</p>
       ${moreNew ? `<p class="muted">${tn(moreNew, 'Er is nog {n} nieuw woord over.', 'Er zijn nog {n} nieuwe woorden over.')}</p>
-        <button class="btn primary block" data-act="extra" data-id="${esc(target)}" style="margin-top:12px">${t('Doorgaan met 10 nieuwe woorden')}</button>` : ''}
+        <button class="btn primary block" data-act="extra" data-id="${esc(target)}" data-n="${moreN}" style="margin-top:12px">${tn(Math.min(moreN, moreNew), 'Doorgaan met {n} nieuw woord', 'Doorgaan met {n} nieuwe woorden')}</button>` : ''}
       <button class="btn ${moreNew ? '' : 'primary'} block" data-go="#/" style="margin-top:12px">${t('Naar het overzicht')}</button></div>`;
   }
   const { deck, card } = findRef(s.current);
@@ -901,22 +1070,22 @@ function viewDeck(id) {
     ${topbar('#/', esc(deckName(d)))}
     <div class="card" style="margin:0 0 12px">${deckSummary(d)}</div>
     <div class="row">
-      <button class="btn primary" data-go="#/study/${esc(d.id)}" ${todo ? '' : 'disabled'}>${t('Oefen')}</button>
+      ${practiceBtn(d.id, todo, c.newWords, o.newWords, t('Oefen'))}
       <button class="btn" data-go="#/free/${esc(d.id)}" ${activeCards(d).length ? '' : 'disabled'}>${t('Vrij oefenen')}</button>
     </div>
 
-    <h2>${t('Hoeveel nieuwe woorden per keer?')}</h2>
-    <div class="seg" role="radiogroup" aria-label="${t('Nieuwe woorden per keer oefenen')}">
+    <h2>${t('Hoeveel nieuwe woorden per dag?')}</h2>
+    <div class="seg" role="radiogroup" aria-label="${t('Nieuwe woorden per dag')}">
       ${Object.entries(PRESETS).map(([k, p]) => `<button class="${o.preset === k ? 'on' : ''}" role="radio" aria-checked="${o.preset === k}" data-act="set-preset" data-id="${esc(d.id)}" data-key="${k}">
         ${t(p.label)}<span>${tn(p.newWords, '{n} woord', '{n} woorden')}</span></button>`).join('')}
     </div>
-    ${!PRESETS[o.preset] ? `<p class="small" style="margin:8px 0 0">${tn(o.newWords, 'Nu: eigen instelling, {n} woord per keer.', 'Nu: eigen instelling, {n} woorden per keer.')}</p>` : ''}
-    <p class="muted small" style="margin-top:8px">${perWord === 2 ? t('Zoveel nieuwe woorden krijg je elke keer dat je gaat oefenen, elk in beide richtingen.') : t('Zoveel nieuwe woorden krijg je elke keer dat je gaat oefenen.')}
-      ${c.newWords ? tn(rounds, 'Alle {w} nieuwe woorden heb je na ±{n} keer oefenen gehad.', 'Alle {w} nieuwe woorden heb je na ±{n} keer oefenen gehad.', { w: c.newWords }) : ''}
-      ${t('Wil je meer? Aan het eind van het oefenen kies je "Doorgaan met 10 nieuwe woorden".')}</p>
+    ${!PRESETS[o.preset] ? `<p class="small" style="margin:8px 0 0">${tn(o.newWords, 'Nu: eigen instelling, {n} woord per dag.', 'Nu: eigen instelling, {n} woorden per dag.')}</p>` : ''}
+    <p class="muted small" style="margin-top:8px">${perWord === 2 ? t('Zoveel nieuwe woorden krijg je per dag, elk in beide richtingen.') : t('Zoveel nieuwe woorden krijg je per dag.')} ${t('Stop je halverwege en ga je dezelfde dag verder, dan ga je door met dezelfde woorden. De volgende dag komen er nieuwe bij.')}
+      ${c.newWords ? tn(rounds, 'Alle {w} nieuwe woorden heb je na ±{n} dag gehad.', 'Alle {w} nieuwe woorden heb je na ±{n} dagen gehad.', { w: c.newWords }) : ''}
+      ${t('Ben je klaar en wil je verder? Dan krijg je met één tik een nieuwe portie woorden.')}</p>
     <details style="margin-top:10px" class="card">
       <summary>${t('Eigen aantal en meer instellingen')}</summary>
-      ${optField('newWords', t('Nieuwe woorden per keer oefenen'), o.newWords, '', 'min="0" max="500"')}
+      ${optField('newWords', t('Nieuwe woorden per dag'), o.newWords, '', 'min="0" max="500"')}
       ${optField('maxReviews', t('Maximaal te herhalen kaarten per keer oefenen'), o.maxReviews, '', 'min="0" max="9999"')}
       ${optField('learnSteps', t('Een nieuw woord komt terug na … kaarten'), o.learnSteps.join(' '), t('Eerste getal: na "Opnieuw". Na "Goed" schuift het woord door naar het volgende getal, en daarna naar de volgende keer oefenen. "Moeilijk" is ongeveer 1,8 keer zo ver. Standaard: 8 25.'), 'text')}
       ${optField('relearnSteps', t('Een vergeten woord komt terug na … kaarten'), o.relearnSteps.join(' '), t('Standaard: {v}.', { v: 10 }), 'text')}
@@ -979,7 +1148,7 @@ function viewCard(deckId, cardId) {
       <label for="note">${t('Notitie (optioneel)')}</label><input type="text" id="note" value="${esc(c.note)}" placeholder="${t('bijv. onregelmatig werkwoord')}">
       <div class="row" style="margin-top:14px">
         <button class="btn primary" data-act="save-card" data-deck="${esc(d.id)}" data-id="${esc(c.id)}">${t('Opslaan')}</button>
-        <button class="btn" data-act="speak-text" data-text="${esc(c.term)}" data-lang="${d.lang || 'es'}">🔊 ${t('Luister')}</button>
+        <button class="btn speak" data-act="speak-text" data-text="${esc(c.term)}" data-lang="${d.lang || 'es'}">🔊 ${t('Luister')}</button>
       </div>
       <div class="row" style="margin-top:8px">
         <button class="btn" data-act="reset-card" data-deck="${esc(d.id)}" data-id="${esc(c.id)}">${t('Opnieuw leren')}</button>
@@ -1039,12 +1208,16 @@ function viewSettings() {
     </div>
     <h2>${t('Geluid')}</h2>
     <div class="card">
-      <label class="check"><input type="checkbox" id="autospeak" ${s.autoSpeak ? 'checked' : ''}> ${t('Woorden automatisch uitspreken')}</label>
+      <div class="menu-label">${t('Voorlezen')}</div>
+      <div class="seg" role="radiogroup" aria-label="${t('Voorlezen')}">
+        ${SOUND_MODES.map(k => `<button class="${soundMode() === k ? 'on' : ''}" role="radio" aria-checked="${soundMode() === k}" data-act="set-sound" data-key="${k}">${esc(soundLabel(k))}</button>`).join('')}
+      </div>
+      <p class="muted small">${t('Met "+ NL" leest de app ook de Nederlandse vraag voor: handig om samen te oefenen, bijvoorbeeld in de auto. Je wisselt ook tijdens het oefenen, met het luidsprekertje bovenin.')}</p>
       <label for="rate">${t('Spreeksnelheid')}</label>
       <select id="rate">
         ${[[0.7, t('Langzaam')], [0.9, t('Normaal')], [1.05, t('Snel')]].map(([v, l]) => `<option value="${v}" ${s.rate == v ? 'selected' : ''}>${l}</option>`).join('')}
       </select>
-      <div class="row" style="margin-top:12px"><button class="btn" data-act="speak-text" data-text="${esc(LANGS[curLang()].hello)}" data-lang="${curLang()}">🔊 ${t('Test de stem')}</button></div>
+      <div class="row" style="margin-top:12px"><button class="btn speak" data-act="speak-text" data-text="${esc(LANGS[curLang()].hello)}" data-lang="${curLang()}">🔊 ${t('Test de stem')}</button></div>
       ${'speechSynthesis' in window ? '' : `<p class="muted small">${t('Deze browser kan niet voorlezen.')}</p>`}
     </div>
     <h2>${t('Waar staat mijn voortgang?')}</h2>
@@ -1085,7 +1258,15 @@ function viewSettings() {
       <p>${t('Vrij oefenen loopt een hele lijst door zonder dat het meetelt. Handig om samen te oefenen, bijvoorbeeld in de auto.')}</p>
       <p class="muted">${t('Bij elke lijst zie je hoeveel woorden je al hebt geleerd, wat je vandaag hebt geoefend (goed en fout) en wat er klaarstaat: nieuwe woorden en woorden om te herhalen.')}</p>
     </div>
-    <p class="muted small" style="text-align:center;margin-top:24px">Woordkoffer ${APP_VERSION}</p>`;
+    <h2>${t('Privacy')}</h2>
+    <div class="card small">
+      <p>${t('Je woorden, voortgang en antwoorden staan alleen op dit apparaat. De app stuurt ze nergens heen en heeft geen account nodig.')}</p>
+      ${chromeDesktop ? `<p>${t('Chrome op de computer leest voor met een stem van Google. Het woord dat wordt voorgelezen gaat dan via internet naar Google.')}</p>` : ''}
+      ${GOATCOUNTER ? `<p>${t('De app telt anoniem hoe vaak hij wordt geopend, met GoatCounter: zonder cookies en zonder persoonsgegevens.')}</p>` : ''}
+      ${FEEDBACK_URL ? `<p>${t('Feedback gaat via een Google-formulier. Vul daar alleen in wat je wilt delen.')}</p>` : ''}
+    </div>
+    ${FEEDBACK_URL ? `<a class="btn block" href="${esc(FEEDBACK_URL)}" target="_blank" rel="noopener" style="margin-top:16px">${t('Feedback geven')}</a>` : ''}
+    <p class="muted small" style="text-align:center;margin-top:24px">${creditHtml()}</p>`;
 }
 
 // ---------- Statistieken ----------
@@ -1357,6 +1538,9 @@ function bindTips() {
   });
 }
 
+// Naam en versie, onderaan het menu en de instellingen.
+const creditHtml = () => `Woordkoffer ${APP_VERSION} · <a href="${SOURCE_URL}" target="_blank" rel="noopener">${t('open source')}</a><br>© 2026 ${MAKER}`;
+
 function viewNotFound() {
   return `<div class="done"><h1>${t('Niet gevonden')}</h1><button class="btn primary" data-go="#/">${t('Naar het overzicht')}</button></div>`;
 }
@@ -1368,6 +1552,7 @@ function render() {
   document.documentElement.lang = uiLang();
   const r = route();
   if (r.name !== 'study') session = null;
+  if (!['study', 'free', 'check'].includes(r.name)) audioOff();
   if (r.name !== 'free' && r.name !== 'check') free = null;
   let html;
   switch (r.name) {
@@ -1386,6 +1571,15 @@ function render() {
   $app.innerHTML = html;
   if (menuOpen) drawMenu();
   afterRender(r);
+}
+
+// Wat er bij dit kaartje wordt voorgelezen. Vanzelf: het vreemde woord zodra het op het scherm komt, en in de stand
+// "+ NL" ook de Nederlandse vraag. Met het luidsprekertje (onTap): het vreemde woord als het in beeld is.
+function spokenText(f, onTap = false) {
+  const term = { text: f.card.term, lang: f.lang };
+  if (f.dir === 'toNl') return !f.revealed || onTap ? term : null;
+  if (f.revealed) return term;
+  return db.settings.speakNl ? { text: f.card.nl, lang: 'nl' } : null;
 }
 
 // Het kaartje dat nu op het scherm staat (in beide oefenvormen).
@@ -1436,10 +1630,11 @@ function afterRender(r) {
   $app.querySelector('.langsel')?.addEventListener('change', e => { db.settings.lang = e.target.value; statsState.deck = 'all'; save(); render(); });
   const f = currentFlash();
   if (f?.card && db.settings.autoSpeak) {
-    // Het vreemde woord voorlezen zodra het op het scherm komt: bij taal → Nederlands meteen, anders bij het antwoord.
-    const showTerm = f.dir === 'toNl' ? !f.revealed : f.revealed;
     const key = f.key + f.revealed;
-    if (showTerm && key !== lastSpoken) { speak(f.card.term, f.lang); lastSpoken = key; }
+    if (key !== lastSpoken) {
+      const said = spokenText(f);
+      if (said) { speak(said.text, said.lang); lastSpoken = key; }
+    }
   }
   if (r.name === 'import') {
     const paste = document.getElementById('paste'), swap = document.getElementById('swap');
@@ -1476,14 +1671,13 @@ function afterRender(r) {
   } else { viewDeck.q = ''; viewDeck.deck = null; }
   if (r.name === 'settings') {
     const s = db.settings;
-    document.getElementById('autospeak').addEventListener('change', e => { s.autoSpeak = e.target.checked; save(); });
     document.getElementById('rate').addEventListener('change', e => { s.rate = parseFloat(e.target.value); save(); });
     document.getElementById('restore').addEventListener('change', e => readFile(e.target, txt => {
       let data; try { data = normalize(JSON.parse(txt)); } catch (err) { data = null; }
       if (!data) return toast(t('Dit is geen geldige back-up.'));
       if (!confirm(t('Alles op dit apparaat vervangen door deze back-up? Je huidige stand wordt eerst als automatische kopie bewaard.'))) return;
       storeCopy('voor-terugzetten', JSON.stringify(db), 3);
-      db = data; save(); toast(t('Back-up teruggezet')); go('#/');
+      db = data; save(); toast(t('Back-up teruggezet')); goHome();
     }));
   }
 }
@@ -1501,25 +1695,30 @@ function reveal() {
 }
 
 document.addEventListener('click', e => {
+  if (['study', 'free', 'check'].includes(route().name)) audioOn();   // geluid mag pas starten na een tik
   if (e.target.closest('.drawer-backdrop')) return closeMenu();
   const menuGo = e.target.closest('[data-menu-go]');
   if (menuGo) { pendingGo = menuGo.dataset.menuGo; return closeMenu(); }
-  const el = e.target.closest('[data-go],[data-act],[data-grade],[data-free]');
+  const el = e.target.closest('[data-go],[data-back],[data-act],[data-grade],[data-free]');
   if (!el || el.disabled) return;
   if (el.dataset.grade) return answer(+el.dataset.grade);
   if (el.dataset.free) return freeAnswer(el.dataset.free === '1');
+  if (el.dataset.back) return goBack(el.dataset.back);
   if (el.dataset.go) return go(el.dataset.go);
   switch (el.dataset.act) {
     case 'menu': openMenu(); break;
+    case 'menu-close': closeMenu(); break;
     case 'ui-lang': db.settings.uiTarget = el.dataset.key === 'target'; save(); render(); break;
     case 'reveal': reveal(); break;
-    case 'speak': { const f = currentFlash(); if (f?.card && db.settings.autoSpeak) speak(f.card.term, f.lang); break; }
-    case 'toggle-sound':
-      db.settings.autoSpeak = !db.settings.autoSpeak; save();
-      if (!db.settings.autoSpeak && 'speechSynthesis' in window) speechSynthesis.cancel();
-      lastSpoken = currentFlash()?.key + currentFlash()?.revealed;   // niet meteen opnieuw voorlezen bij aanzetten
-      toast(db.settings.autoSpeak ? t('Geluid aan') : t('Geluid uit')); render();
+    case 'speak': { const f = currentFlash(); const said = f?.card && db.settings.autoSpeak && spokenText(f, true); if (said) speak(said.text, said.lang); break; }
+    case 'toggle-sound': {
+      const next = SOUND_MODES[(SOUND_MODES.indexOf(soundMode()) + 1) % SOUND_MODES.length];
+      setSound(next);
+      toast(next === 'off' ? t('Voorlezen uit') : next === 'lang' ? t('Voorlezen: alleen {taal}', { taal: langName(curLang()) }) : t('Voorlezen: {taal} en Nederlands', { taal: langName(curLang()) }));
+      render();
       break;
+    }
+    case 'set-sound': setSound(el.dataset.key); render(); break;
     case 'speak-text': speak(el.dataset.text, el.dataset.lang); break;
     case 'undo': undo(); break;
     case 'stats-period': statsState.period = el.dataset.key; render(); break;
@@ -1530,14 +1729,16 @@ document.addEventListener('click', e => {
     case 'skip-word': skipCurrent(); break;
     case 'remove-word': if (route().name === 'study') removeCurrent(); else removeFree(); break;
     case 'free-restart': startFree(free.deck); render(); break;
-    case 'extra':
-      // Doorgaan met 10 nieuwe woorden (bij "alles oefenen" verdeeld over de lijsten die nog nieuwe woorden hebben).
-      startSession(el.dataset.id, 10); render();
+    case 'extra': {
+      const n = Number(el.dataset.n) || 20;
+      if (route().name === 'study') { startSession(el.dataset.id, n); render(); }
+      else { session = null; addExtra(el.dataset.id, n); go('#/study/' + el.dataset.id); }
       break;
+    }
     case 'set-preset': {
       const d = getDeck(el.dataset.id); const p = PRESETS[el.dataset.key]; if (!d || !p) return;
       d.opts = { ...(d.opts || {}), preset: el.dataset.key, newWords: p.newWords, maxReviews: p.maxReviews };
-      save(); toast(t('{label}: {n} nieuwe woorden per keer', { label: t(p.label), n: p.newWords })); rerenderKeepScroll();
+      save(); toast(t('{label}: {n} nieuwe woorden per dag', { label: t(p.label), n: p.newWords })); rerenderKeepScroll();
       break;
     }
     case 'sel-start': viewDeck.selecting = true; viewDeck.sel = new Set(); rerenderKeepScroll(); break;
@@ -1597,7 +1798,7 @@ document.addEventListener('click', e => {
       const { added, dup } = addCards(d, out);
       save();
       toast(tn(added, '{n} woord toegevoegd', '{n} woorden toegevoegd') + (dup ? ', ' + tn(dup, '{n} stond er al in', '{n} stonden er al in') : ''));
-      go('#/deck/' + d.id);
+      replaceWith('#/deck/' + d.id);
       break;
     }
     case 'save-card': {
@@ -1605,7 +1806,7 @@ document.addEventListener('click', e => {
       const term = document.getElementById('term').value.trim(), nl = document.getElementById('nl').value.trim();
       if (!term || !nl) return toast(t('Vul {taal} en {nl} in.', { taal: langName(d.lang || 'es'), nl: nlName() }));
       c.term = term; c.nl = nl; c.note = document.getElementById('note').value.trim();
-      save(); toast(t('Opgeslagen')); go('#/deck/' + d.id);
+      save(); toast(t('Opgeslagen')); goBack('#/deck/' + d.id);
       break;
     }
     case 'reset-card': {
@@ -1618,13 +1819,13 @@ document.addEventListener('click', e => {
       const d = getDeck(el.dataset.deck); if (!d) return;
       const c = d.cards.find(x => x.id === el.dataset.id);
       if (!c || !confirm(t('"{w}" verwijderen?', { w: c.term }))) return;
-      d.cards = d.cards.filter(x => x.id !== c.id); save(); toast(t('Verwijderd')); go('#/deck/' + d.id);
+      d.cards = d.cards.filter(x => x.id !== c.id); save(); toast(t('Verwijderd')); goBack('#/deck/' + d.id);
       break;
     }
     case 'del-deck': {
       const d = getDeck(el.dataset.id); if (!d) return;
       if (!confirm(t('De lijst "{naam}" met {w} verwijderen? Dit kan niet ongedaan worden.', { naam: deckName(d), w: tn(d.cards.length, '{n} woord', '{n} woorden') }))) return;
-      db.decks = db.decks.filter(x => x.id !== d.id); save(); toast(t('Lijst verwijderd')); go('#/');
+      db.decks = db.decks.filter(x => x.id !== d.id); save(); toast(t('Lijst verwijderd')); goHome();
       break;
     }
     case 'share-deck': {
@@ -1639,7 +1840,7 @@ document.addEventListener('click', e => {
       if (!data) return toast(t('Deze kopie is onleesbaar.'));
       if (!confirm(t('Deze kopie terugzetten? Je huidige stand wordt eerst zelf ook als kopie bewaard.'))) return;
       storeCopy('voor-terugzetten', JSON.stringify(db), 3);
-      db = data; save(); toast(t('Kopie teruggezet')); go('#/');
+      db = data; save(); toast(t('Kopie teruggezet')); goHome();
       break;
     }
     case 'backup':
@@ -1658,10 +1859,22 @@ document.addEventListener('keydown', e => {
   else if (revealed && name !== 'study' && (e.key === '1' || e.key === '2')) freeAnswer(e.key === '2');
 });
 
-window.addEventListener('hashchange', render);
+// Bij het openen is dit scherm het beginpunt van de geschiedenis.
+if (!history.state) history.replaceState({ d: 0 }, '');
 // Bij terugkomen in de app (bijv. de volgende dag) de tellingen verversen.
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !['study', 'free', 'check'].includes(route().name)) render(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return audioOff();
+  if (!['study', 'free', 'check'].includes(route().name)) render();
+});
 render();
+
+// Anoniem tellen hoe vaak de app wordt geopend (alleen als GOATCOUNTER is ingevuld en de app online staat).
+if (GOATCOUNTER && location.protocol === 'https:') {
+  const sc = document.createElement('script');
+  sc.async = true; sc.src = 'https://gc.zgo.at/count.js';
+  sc.dataset.goatcounter = `https://${GOATCOUNTER}.goatcounter.com/count`;
+  document.head.appendChild(sc);
+}
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});

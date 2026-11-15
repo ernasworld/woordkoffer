@@ -1,4 +1,4 @@
-/* Woordkoffer 1.0 – opmaak.
+/* Woordkoffer – opmaak.
    Kleuren: kobaltblauw met warme herfsttinten (crème, espresso, roest, mosterd, olijf en petrol).
    Donker volgt de telefoon, tenzij je in Instellingen zelf kiest (data-theme op <html>). */
 
@@ -166,6 +166,7 @@ body.menu-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .menu-head .logo { width: 44px; height: 44px; border-radius: 12px; flex: none; }
 .menu-head strong { font-size: 19px; }
 .menu-head .motto { font-size: 14px; margin: 0; }
+.menu-head .menu-close { margin-left: auto; color: var(--muted); }
 .menu-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
 .menu-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
 .menu-items { display: flex; flex-direction: column; gap: 2px; }
@@ -176,7 +177,9 @@ body.menu-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .menu-item svg { color: var(--accent); flex: none; }
 .menu-item:hover { background: var(--surface-2); }
 .menu-item.on { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+a.menu-item { text-decoration: none; }
 .menu-foot { margin-top: auto; text-align: center; }
+.menu-foot a, .small a { color: var(--accent); }
 
 /* ---------- Oefenen ---------- */
 .roundbar { margin: 0 0 10px; }
@@ -320,3 +323,18 @@ select#statsdeck { margin-bottom: 4px; }
   opacity: 0; pointer-events: none; transition: .2s; max-width: calc(100% - 32px); text-align: center; z-index: 30;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---------- Tikfeedback: elke knop geeft zichtbaar mee als je erop drukt ---------- */
+.btn, .iconbtn, .linkbtn, .seg button, .menu-item, .cardrow { transition: transform .08s ease, filter .08s ease, background-color .08s ease; }
+.btn:not(:disabled):active, .seg button:active { transform: scale(.96); filter: brightness(.9); }
+.answers .btn:not(:disabled):active { transform: scale(.93); filter: brightness(.82); }
+.iconbtn:active, .linkbtn:active { transform: scale(.88); opacity: .6; }
+.menu-item:active, .cardrow:active { background: var(--accent-soft); }
+.iconbtn.speak.playing { animation: speak-pulse .9s ease-in-out infinite; }
+.btn.speak.playing { animation: speak-fade .9s ease-in-out infinite; }
+@keyframes speak-pulse { 50% { transform: scale(1.18); opacity: .6; } }
+@keyframes speak-fade { 50% { opacity: .6; } }
+@media (prefers-reduced-motion: reduce) {
+  .btn:not(:disabled):active, .seg button:active, .answers .btn:not(:disabled):active, .iconbtn:active, .linkbtn:active { transform: none; }
+  .iconbtn.speak.playing, .btn.speak.playing { animation: none; opacity: .6; }
+}
