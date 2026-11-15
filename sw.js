@@ -1,6 +1,6 @@
 // Service worker: zorgt dat de app offline werkt.
 // Verander VERSION bij elke nieuwe uitgave, zodat telefoons de nieuwe bestanden ophalen.
-const VERSION = 'woordkoffer-1.1.1';
+const VERSION = 'woordkoffer-1.1.2';
 const FILES = [
   './', 'index.html', 'styles.css', 'vertalingen.js', 'lijsten.js', 'lijsten-sv.js', 'app.js', 'manifest.json',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'

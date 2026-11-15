@@ -378,7 +378,7 @@ window.UI_TEXT = {
     'Privacy': 'Privacidad',
     'Je woorden, voortgang en antwoorden staan alleen op dit apparaat. De app stuurt ze nergens heen en heeft geen account nodig.': 'Tus palabras, tu progreso y tus respuestas solo están en este dispositivo. La app no los envía a ningún sitio y no necesita cuenta.',
     'Chrome op de computer leest voor met een stem van Google. Het woord dat wordt voorgelezen gaat dan via internet naar Google.': 'Chrome en el ordenador lee en voz alta con una voz de Google. La palabra que se lee se envía entonces por internet a Google.',
-    'De app telt anoniem hoe vaak hij wordt geopend, met GoatCounter: zonder cookies en zonder persoonsgegevens.': 'La app cuenta de forma anónima cuántas veces se abre, con GoatCounter: sin cookies y sin datos personales.',
+    'De app telt anoniem welke talen, schermen, knoppen en kant-en-klare lijsten worden gebruikt, met GoatCounter: zonder cookies en zonder persoonsgegevens. De namen en woorden van je eigen lijsten worden nooit geteld.': 'La app cuenta de forma anónima qué idiomas, pantallas, botones y listas predefinidas se usan, con GoatCounter: sin cookies y sin datos personales. Los nombres y las palabras de tus propias listas nunca se cuentan.',
     'Feedback gaat via een Google-formulier. Vul daar alleen in wat je wilt delen.': 'Los comentarios se envían con un formulario de Google. Escribe solo lo que quieras compartir.',
     'open source': 'código abierto',
   },

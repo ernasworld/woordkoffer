@@ -1,4 +1,4 @@
-# Woordkoffer 1.1.1
+# Woordkoffer 1.1.2
 
 Pak je woorden in voor op reis. Woordkoffer is een flashcard-app om de woorden van een taal te leren, met herhaling op het juiste moment. De naam knipoogt naar het spel "Ik ga op reis en ik neem mee".
 
@@ -34,7 +34,7 @@ Te gebruiken op **https://woordkoffer.wijgaanopreisennemenmee.nl**.
 
 ## Privacy
 - Woorden, voortgang en antwoorden blijven op het apparaat van de gebruiker. Er is geen server, geen account en geen inlog.
-- Als `GOATCOUNTER` is ingevuld, telt de app anoniem hoe vaak hij wordt geopend, met [GoatCounter](https://www.goatcounter.com): zonder cookies en zonder persoonsgegevens.
+- Als `GOATCOUNTER` is ingevuld, telt de app anoniem welke talen, schermen, knoppen en kant-en-klare lijsten worden gebruikt, met [GoatCounter](https://www.goatcounter.com): zonder cookies en zonder persoonsgegevens. De namen en woorden van eigen lijsten worden nooit geteld. Een knop telt mee met `data-count="naam"`.
 - Feedback gaat via een Google-formulier; daar vult iemand alleen in wat hij wil delen.
 - Chrome op de computer leest voor met een stem van Google; het voorgelezen woord gaat dan via internet naar Google. Op de telefoon gebruikt de app de stem van de telefoon zelf.
 

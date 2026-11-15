@@ -92,12 +92,12 @@ function toast(msg, ms = 2200) {
 }
 
 // ---------- Opslag ----------
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.1.2';
 // Instellingen van de maker. Leeg = staat uit.
 const MAKER = 'ernasworld';
 const SOURCE_URL = 'https://github.com/ernasworld/woordkoffer';
 const FEEDBACK_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSctxD9dJ6HfMhewnEC6IKhJu7M7MbdgveobdPjtM1W_Q_j6zQ/viewform';   // link naar het Google-formulier voor feedback
-const GOATCOUNTER = 'woordkoffer';    // code bij GoatCounter: telt anoniem hoe vaak de app wordt geopend
+const GOATCOUNTER = 'woordkoffer';    // code bij GoatCounter: telt anoniem welke talen, schermen en knoppen worden gebruikt
 const STORE_KEY = 'woordkoffer';
 const DATA_VERSION = 2;
 const STARTERS = window.STARTER_LISTS || [];
@@ -342,6 +342,7 @@ function startSession(target, extraWords = 0) {
   const decks = target === 'all' ? langDecks() : db.decks.filter(d => d.id === target);
   const eod = endOfDay(Date.now());
   if (extraWords) addExtra(target, extraWords);
+  else count(target === 'all' ? 'Geoefend: alles (' + LANGS[curLang()].name + ')' : 'Geoefend: ' + deckLabel(decks[0]));
   const learn = [], review = [], fresh = [];
   for (const deck of decks) {
     const dRev = [];
@@ -496,6 +497,7 @@ let free = null;
 // mode 'free': hele lijst door zonder dat het meetelt voor het schema. mode 'check': verborgen woorden doorkijken.
 function startFree(deckId, mode = 'free') {
   const deck = getDeck(deckId); if (!deck) return;
+  if (mode === 'free') count('Vrij geoefend: ' + deckLabel(deck));
   const dirs = dirsOf(deck);
   const cards = mode === 'check' ? deck.cards.filter(c => c.hidden && c.hidden !== 'removed') : activeCards(deck);
   const queue = shuffle(cards.map(c => ({ card: c.id, dir: dirs[Math.floor(Math.random() * dirs.length)] })));
@@ -725,6 +727,7 @@ const SOUND_MODES = ['off', 'lang', 'both'];
 const soundMode = () => !db.settings.autoSpeak ? 'off' : db.settings.speakNl ? 'both' : 'lang';
 const soundLabel = mode => mode === 'off' ? t('Uit') : mode === 'lang' ? langName(curLang()) : t('{taal} + NL', { taal: langName(curLang()) });
 function setSound(mode) {
+  count('Voorlezen: ' + { off: 'uit', lang: 'taal', both: 'taal + NL' }[mode]);
   db.settings.autoSpeak = mode !== 'off';
   db.settings.speakNl = mode === 'both';
   save();
@@ -833,7 +836,7 @@ function uiToggle() {
 function practiceBtn(target, ready, newLeft, n, label, cls = '') {
   n = n || 20;
   if (ready) return `<button class="btn primary ${cls}" data-go="#/study/${esc(target)}">${label}</button>`;
-  if (newLeft) return `<button class="btn primary ${cls}" data-act="extra" data-id="${esc(target)}" data-n="${n}">${tn(Math.min(n, newLeft), 'Nog {n} nieuw woord', 'Nog {n} nieuwe woorden')}</button>`;
+  if (newLeft) return `<button class="btn primary ${cls}" data-act="extra" data-id="${esc(target)}" data-n="${n}" data-count="Nog nieuwe woorden">${tn(Math.min(n, newLeft), 'Nog {n} nieuw woord', 'Nog {n} nieuwe woorden')}</button>`;
   return `<button class="btn ${cls}" disabled>${t('Alles gedaan')}</button>`;
 }
 
@@ -895,14 +898,14 @@ function menuHtml() {
       ${item('#/import/new', 'plus', t('Nieuwe lijst'))}
       ${STARTERS.some(s => (s.lang || 'es') === curLang()) ? item('#/library', 'box', t('Kant-en-klare lijsten')) : ''}
       ${item('#/settings', 'settings', t('Instellingen'))}
-      ${FEEDBACK_URL ? `<a class="menu-item" href="${esc(FEEDBACK_URL)}" target="_blank" rel="noopener">${ICONS.chat}<span>${t('Feedback geven')}</span></a>` : ''}
+      ${FEEDBACK_URL ? `<a class="menu-item" href="${esc(FEEDBACK_URL)}" target="_blank" rel="noopener" data-count="Feedback geven">${ICONS.chat}<span>${t('Feedback geven')}</span></a>` : ''}
     </div>
     <div class="menu-foot muted small">${creditHtml()}</div>`;
 }
 function drawMenu() {
   const nav = document.getElementById('drawer');
   nav.innerHTML = menuHtml();
-  nav.querySelector('.langsel')?.addEventListener('change', e => { db.settings.lang = e.target.value; save(); render(); });
+  nav.querySelector('.langsel')?.addEventListener('change', e => { db.settings.lang = e.target.value; save(); render(); count('Leertaal: ' + LANGS[db.settings.lang].name); });
 }
 function openMenu() {
   if (menuOpen) return;
@@ -951,15 +954,15 @@ function flashHtml({ dir, card, revealed, sub, removable, deck, skippable, dots 
       ${db.settings.autoSpeak && (dir === 'toNl' || revealed || db.settings.speakNl) ? `<button class="iconbtn speak" data-act="speak" aria-label="${t('Spreek uit')}">🔊</button>` : ''}
       <div class="front" lang="${dir === 'toNl' ? lc : 'nl'}">${esc(front)}</div>
       ${revealed ? `<hr><div class="back" lang="${dir === 'fromNl' ? lc : 'nl'}">${esc(back)}</div>${card.note ? `<div class="note">${esc(card.note)}</div>` : ''}` : ''}
-      ${skippable ? `<button class="mini-skip" data-act="skip-word" title="${t('Nu overslaan; komt de volgende keer terug')}">↷ ${t('Overslaan')}</button>` : ''}
-      ${removable ? `<button class="mini-remove" data-act="remove-word" title="${t('Dit woord hoef ik niet te leren')}" aria-label="${t('Dit woord hoef ik niet te leren')}">✕ ${t('Weg')}</button>` : ''}
+      ${skippable ? `<button class="mini-skip" data-act="skip-word" data-count="Overslaan" title="${t('Nu overslaan; komt de volgende keer terug')}">↷ ${t('Overslaan')}</button>` : ''}
+      ${removable ? `<button class="mini-remove" data-act="remove-word" data-count="Weg" title="${t('Dit woord hoef ik niet te leren')}" aria-label="${t('Dit woord hoef ik niet te leren')}">✕ ${t('Weg')}</button>` : ''}
     </div>`;
 }
 
 function viewStudy(target) {
   if (!session || session.target !== target) startSession(target);
   const s = session;
-  const back = topbar('#/', '', (s.undo ? `<button class="iconbtn" data-act="undo" title="${t('Laatste antwoord ongedaan maken')}">↶ ${t('Ongedaan')}</button>` : '') + soundBtn());
+  const back = topbar('#/', '', (s.undo ? `<button class="iconbtn" data-act="undo" data-count="Ongedaan" title="${t('Laatste antwoord ongedaan maken')}">↶ ${t('Ongedaan')}</button>` : '') + soundBtn());
   if (!s.current) {
     const mine = db.events.filter(e => e[EV.t] >= s.started && counts(e));
     const mw = wordsIn(mine);
@@ -972,7 +975,7 @@ function viewStudy(target) {
       <h1>${mine.length ? LANGS[curLang()].bravo : t('Niets te doen')}</h1>
       <p class="muted">${mine.length ? tn(mw.words, '{n} woord geoefend, {c} meteen goed.', '{n} woorden geoefend, {c} meteen goed.', { c: mw.clean }) + (mins ? ' ' + tn(mins, 'In {n} minuut.', 'In {n} minuten.') : '') : t('Er staat nu niets klaar.')}</p>
       ${moreNew ? `<p class="muted">${tn(moreNew, 'Er is nog {n} nieuw woord over.', 'Er zijn nog {n} nieuwe woorden over.')}</p>
-        <button class="btn primary block" data-act="extra" data-id="${esc(target)}" data-n="${moreN}" style="margin-top:12px">${tn(Math.min(moreN, moreNew), 'Doorgaan met {n} nieuw woord', 'Doorgaan met {n} nieuwe woorden')}</button>` : ''}
+        <button class="btn primary block" data-act="extra" data-id="${esc(target)}" data-n="${moreN}" data-count="Doorgaan met nieuwe woorden" style="margin-top:12px">${tn(Math.min(moreN, moreNew), 'Doorgaan met {n} nieuw woord', 'Doorgaan met {n} nieuwe woorden')}</button>` : ''}
       <button class="btn ${moreNew ? '' : 'primary'} block" data-go="#/" style="margin-top:12px">${t('Naar het overzicht')}</button></div>`;
   }
   const { deck, card } = findRef(s.current);
@@ -990,7 +993,7 @@ function viewStudy(target) {
     const lbl = [t('Opnieuw'), t('Moeilijk'), t('Goed'), firstTime ? t('Ken ik al') : t('Makkelijk')];
     const sub = g => g === 4 && firstTime ? t('verbergen') : fmtWait(schedule(st, g, now, o));
     buttons = `<div class="answers">${[1, 2, 3, 4].map(g =>
-      `<button class="btn a${g}" data-grade="${g}">${lbl[g - 1]}<span>${sub(g)}</span></button>`).join('')}</div>`;
+      `<button class="btn a${g}" data-grade="${g}" ${g === 4 && firstTime ? 'data-count="Ken ik al"' : ''}>${lbl[g - 1]}<span>${sub(g)}</span></button>`).join('')}</div>`;
   } else {
     buttons = `<button class="btn primary block reveal" data-act="reveal">${t('Toon antwoord')}</button>`;
   }
@@ -1262,10 +1265,10 @@ function viewSettings() {
     <div class="card small">
       <p>${t('Je woorden, voortgang en antwoorden staan alleen op dit apparaat. De app stuurt ze nergens heen en heeft geen account nodig.')}</p>
       ${chromeDesktop ? `<p>${t('Chrome op de computer leest voor met een stem van Google. Het woord dat wordt voorgelezen gaat dan via internet naar Google.')}</p>` : ''}
-      ${GOATCOUNTER ? `<p>${t('De app telt anoniem hoe vaak hij wordt geopend, met GoatCounter: zonder cookies en zonder persoonsgegevens.')}</p>` : ''}
+      ${GOATCOUNTER ? `<p>${t('De app telt anoniem welke talen, schermen, knoppen en kant-en-klare lijsten worden gebruikt, met GoatCounter: zonder cookies en zonder persoonsgegevens. De namen en woorden van je eigen lijsten worden nooit geteld.')}</p>` : ''}
       ${FEEDBACK_URL ? `<p>${t('Feedback gaat via een Google-formulier. Vul daar alleen in wat je wilt delen.')}</p>` : ''}
     </div>
-    ${FEEDBACK_URL ? `<a class="btn block" href="${esc(FEEDBACK_URL)}" target="_blank" rel="noopener" style="margin-top:16px">${t('Feedback geven')}</a>` : ''}
+    ${FEEDBACK_URL ? `<a class="btn block" href="${esc(FEEDBACK_URL)}" target="_blank" rel="noopener" data-count="Feedback geven" style="margin-top:16px">${t('Feedback geven')}</a>` : ''}
     <p class="muted small" style="text-align:center;margin-top:24px">${creditHtml()}</p>`;
 }
 
@@ -1554,6 +1557,7 @@ function render() {
   if (r.name !== 'study') session = null;
   if (!['study', 'free', 'check'].includes(r.name)) audioOff();
   if (r.name !== 'free' && r.name !== 'check') free = null;
+  countScreen(r);
   let html;
   switch (r.name) {
     case 'home': html = viewHome(); break;
@@ -1627,7 +1631,7 @@ function afterRender(r) {
     document.getElementById('statsdeck')?.addEventListener('change', e => { statsState.deck = e.target.value; render(); });
     bindTips();
   }
-  $app.querySelector('.langsel')?.addEventListener('change', e => { db.settings.lang = e.target.value; statsState.deck = 'all'; save(); render(); });
+  $app.querySelector('.langsel')?.addEventListener('change', e => { db.settings.lang = e.target.value; statsState.deck = 'all'; save(); render(); count('Leertaal: ' + LANGS[db.settings.lang].name); });
   const f = currentFlash();
   if (f?.card && db.settings.autoSpeak) {
     const key = f.key + f.revealed;
@@ -1699,6 +1703,8 @@ document.addEventListener('click', e => {
   if (e.target.closest('.drawer-backdrop')) return closeMenu();
   const menuGo = e.target.closest('[data-menu-go]');
   if (menuGo) { pendingGo = menuGo.dataset.menuGo; return closeMenu(); }
+  const counted = e.target.closest('[data-count]');
+  if (counted && !counted.disabled) count(counted.dataset.count);
   const el = e.target.closest('[data-go],[data-back],[data-act],[data-grade],[data-free]');
   if (!el || el.disabled) return;
   if (el.dataset.grade) return answer(+el.dataset.grade);
@@ -1708,7 +1714,10 @@ document.addEventListener('click', e => {
   switch (el.dataset.act) {
     case 'menu': openMenu(); break;
     case 'menu-close': closeMenu(); break;
-    case 'ui-lang': db.settings.uiTarget = el.dataset.key === 'target'; save(); render(); break;
+    case 'ui-lang':
+      db.settings.uiTarget = el.dataset.key === 'target'; save(); render();
+      count('App-taal: ' + (db.settings.uiTarget ? 'doeltaal' : 'Nederlands'));
+      break;
     case 'reveal': reveal(); break;
     case 'speak': { const f = currentFlash(); const said = f?.card && db.settings.autoSpeak && spokenText(f, true); if (said) speak(said.text, said.lang); break; }
     case 'toggle-sound': {
@@ -1730,6 +1739,7 @@ document.addEventListener('click', e => {
     case 'stats-year': statsState.year += Number(el.dataset.step); render(); break;
     case 'set-theme':
       db.settings.theme = el.dataset.key; save(); applyTheme(); render();
+      count('Weergave: ' + { auto: 'automatisch', light: 'licht', dark: 'donker' }[el.dataset.key]);
       break;
     case 'skip-word': skipCurrent(); break;
     case 'remove-word': if (route().name === 'study') removeCurrent(); else removeFree(); break;
@@ -1789,6 +1799,7 @@ document.addEventListener('click', e => {
       if (!d) { d = starterDeck(s); db.decks.push(d); toast(t('"{naam}" toegevoegd', { naam: deckName(d) })); }
       else if (d.archived) { delete d.archived; toast(t('"{naam}" staat weer aan, met je voortgang', { naam: deckName(d) })); }
       else { d.archived = true; toast(t('"{naam}" uitgezet. Je voortgang blijft bewaard.', { naam: deckName(d) })); }
+      count((d.archived ? 'Lijst uit: ' : 'Lijst aan: ') + deckLabel(d));
       save(); rerenderKeepScroll();
       break;
     }
@@ -1864,6 +1875,42 @@ document.addEventListener('keydown', e => {
   else if (revealed && name !== 'study' && (e.key === '1' || e.key === '2')) freeAnswer(e.key === '2');
 });
 
+// ---------- Anoniem tellen (GoatCounter) ----------
+// Alleen als GOATCOUNTER is ingevuld en de app online staat; zonder cookies en zonder persoonsgegevens.
+// Geteld worden de schermen (als pagina), en als gebeurtenis: de talen bij het openen, een aantal knoppen en welke
+// lijsten worden geoefend.
+// Nooit de namen of woorden van eigen lijsten. Een knop telt mee met data-count="naam".
+const counting = !!GOATCOUNTER && location.protocol === 'https:';
+const countQueue = [];
+function count(path, event = true) {
+  if (!counting) return;
+  const send = () => window.goatcounter.count({ path, title: path, event });
+  if (window.goatcounter?.count) send(); else countQueue.push(send);
+}
+const SCREENS = { home: 'overzicht', study: 'oefenen', free: 'vrij-oefenen', check: 'verborgen-woorden', deck: 'lijst',
+  card: 'woord', import: 'woorden-toevoegen', library: 'kant-en-klare-lijsten', settings: 'instellingen', stats: 'statistieken' };
+let countedScreen = null;
+function countScreen(r) {
+  const name = r.name === 'import' && r.a === 'new' ? 'nieuwe-lijst' : SCREENS[r.name] || 'niet-gevonden';
+  if (name !== countedScreen) { countedScreen = name; count('/' + name, false); }
+}
+// Een lijst zoals hij geteld wordt: "Dieren (Spaans)", of bij een eigen lijst alleen "eigen lijst (Zweeds)", zonder naam.
+function deckLabel(d) {
+  const s = d?.starter && STARTERS.find(x => x.key === d.starter);
+  return `${s ? s.name : 'eigen lijst'} (${LANGS[d?.lang || 'es'].name})`;
+}
+if (counting) {
+  window.goatcounter = { no_onload: true };
+  const sc = document.createElement('script');
+  sc.async = true; sc.src = 'https://gc.zgo.at/count.js';
+  sc.dataset.goatcounter = `https://${GOATCOUNTER}.goatcounter.com/count`;
+  sc.onload = () => countQueue.splice(0).forEach(send => send());
+  document.head.appendChild(sc);
+}
+
+// Bij het openen: welke taal iemand leert en in welke taal de app staat.
+count(`Opent met: ${LANGS[curLang()].name} · app ${uiLang() === 'nl' ? 'Nederlands' : LANGS[uiLang()].name}`);
+
 // Bij het openen is dit scherm het beginpunt van de geschiedenis.
 if (!history.state) history.replaceState({ d: 0 }, '');
 // Bij terugkomen in de app (bijv. de volgende dag) de tellingen verversen.
@@ -1873,13 +1920,6 @@ document.addEventListener('visibilitychange', () => {
 });
 render();
 
-// Anoniem tellen hoe vaak de app wordt geopend (alleen als GOATCOUNTER is ingevuld en de app online staat).
-if (GOATCOUNTER && location.protocol === 'https:') {
-  const sc = document.createElement('script');
-  sc.async = true; sc.src = 'https://gc.zgo.at/count.js';
-  sc.dataset.goatcounter = `https://${GOATCOUNTER}.goatcounter.com/count`;
-  document.head.appendChild(sc);
-}
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
