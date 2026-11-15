@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Wat de pagina mag laden: alleen eigen bestanden, plus GoatCounter voor het anoniem tellen. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://gc.zgo.at; connect-src 'self' https://woordkoffer.goatcounter.com; img-src 'self' data: https://woordkoffer.goatcounter.com; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Woordkoffer</title>
   <meta name="description" content="Pak je woorden in voor op reis: flashcards om een taal te leren, met herhaling op het juiste moment.">
   <meta name="theme-color" content="#0047ab">

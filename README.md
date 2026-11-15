@@ -1,4 +1,4 @@
-# Woordkoffer 1.1.2
+# Woordkoffer 1.1.3
 
 Pak je woorden in voor op reis. Woordkoffer is een flashcard-app om de woorden van een taal te leren, met herhaling op het juiste moment. De naam knipoogt naar het spel "Ik ga op reis en ik neem mee".
 
@@ -39,7 +39,13 @@ Te gebruiken op **https://woordkoffer.wijgaanopreisennemenmee.nl**.
 - Chrome op de computer leest voor met een stem van Google; het voorgelezen woord gaat dan via internet naar Google. Op de telefoon gebruikt de app de stem van de telefoon zelf.
 
 ## Instellingen van de maker
-Bovenin `app.js`: `FEEDBACK_URL` (link naar het feedbackformulier) en `GOATCOUNTER` (code bij GoatCounter). Leeg = staat uit.
+Bovenin `app.js`: `FEEDBACK_URL` (link naar het feedbackformulier) en `GOATCOUNTER` (code bij GoatCounter). Leeg = staat uit. Verander je de GoatCounter-code, pas dan ook het adres aan in de beveiligingsregel (Content-Security-Policy) in `index.html`.
+
+## Veiligheid
+- Geen server, geen accounts, geen wachtwoorden en geen geheime sleutels: alles draait in de browser.
+- Alles wat een gebruiker invoert of importeert, wordt als tekst getoond, nooit als code.
+- Een back-up of kopie die wordt teruggezet, wordt eerst gecontroleerd; onbekende waarden worden vervangen.
+- De pagina mag alleen haar eigen bestanden laden, plus GoatCounter (Content-Security-Policy in `index.html`).
 
 ## Voortgang
 - De voortgang staat in de browser (localStorage, sleutel `woordkoffer`), los van de app-bestanden. Een nieuwe versie vervangt alleen de bestanden.

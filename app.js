@@ -92,7 +92,7 @@ function toast(msg, ms = 2200) {
 }
 
 // ---------- Opslag ----------
-const APP_VERSION = '1.1.2';
+const APP_VERSION = '1.1.3';
 // Instellingen van de maker. Leeg = staat uit.
 const MAKER = 'ernasworld';
 const SOURCE_URL = 'https://github.com/ernasworld/woordkoffer';
@@ -114,7 +114,21 @@ function normalize(d) {
   d.settings = { ...freshDb().settings, ...(d.settings || {}) };
   d.log ||= {};
   d.events ||= [];
-  for (const deck of d.decks) { deck.opts ||= {}; deck.lang ||= 'es'; deck.dir ||= 'both'; }
+  // Alleen bekende waarden doorlaten: een back-up of kopie komt van buiten de app en kan aangepast zijn.
+  if (!LANGS[d.settings.lang]) d.settings.lang = 'es';
+  if (!['auto', 'light', 'dark'].includes(d.settings.theme)) d.settings.theme = 'auto';
+  d.decks = d.decks.filter(deck => deck && Array.isArray(deck.cards));
+  for (const deck of d.decks) {
+    deck.id = String(deck.id || uid()); deck.name = String(deck.name ?? '');
+    if (!deck.opts || typeof deck.opts !== 'object') deck.opts = {};
+    if (!LANGS[deck.lang]) deck.lang = 'es';
+    if (!['both', 'toNl', 'fromNl'].includes(deck.dir)) deck.dir = 'both';
+    deck.cards = deck.cards.filter(c => c && typeof c === 'object');
+    for (const c of deck.cards) {
+      c.id = String(c.id || uid()); c.term = String(c.term ?? ''); c.nl = String(c.nl ?? ''); c.note = String(c.note ?? '');
+      if (!c.p || typeof c.p !== 'object') c.p = {};
+    }
+  }
   if ((d.version || 1) < 2) {
     // Gegevens met versie 1 omzetten naar versie 2: tempo per keer oefenen, leerstappen in kaarten.
     for (const deck of d.decks) {
