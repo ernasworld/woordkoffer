@@ -1,0 +1,15 @@
+{
+  "name": "Woordkoffer – woordjes voor op reis",
+  "short_name": "Woordkoffer",
+  "description": "Pak je woorden in voor op reis: flashcards om een taal te leren, met herhaling op het juiste moment.",
+  "lang": "nl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f1e8",
+  "theme_color": "#0047ab",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
