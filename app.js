@@ -51,7 +51,7 @@ const dirLabel = (dir, deck) => {
 };
 // Kant-en-klare lijsten met hun oorspronkelijke naam tonen we in de taal van de app.
 const deckName = d => {
-  const s = d.starter && (window.STARTER_LISTS || []).find(x => x.key === d.starter);
+  const s = d.starter && STARTERS.find(x => x.key === d.starter);
   return s && s.name === d.name ? t(d.name) : d.name;
 };
 
@@ -92,7 +92,7 @@ function toast(msg, ms = 2200) {
 }
 
 // ---------- Opslag ----------
-const APP_VERSION = '1.1.3';
+const APP_VERSION = '1.1.4';
 // Instellingen van de maker. Leeg = staat uit.
 const MAKER = 'ernasworld';
 const SOURCE_URL = 'https://github.com/ernasworld/woordkoffer';
@@ -106,14 +106,15 @@ function starterDeck(s) {
     cards: s.words.map(([term, nl, note]) => ({ id: uid(), term, nl, note: note || '', p: {} })) };
 }
 function freshDb() {
-  return { version: DATA_VERSION, settings: { autoSpeak: true, rate: 0.9, lang: 'es', theme: 'auto' }, decks: STARTERS.map(starterDeck), log: {}, events: [] };
+  return { version: DATA_VERSION, settings: { autoSpeak: true, rate: 0.9, lang: 'es', theme: 'auto' }, decks: STARTERS.map(starterDeck), events: [] };
 }
-// Controleert opgeslagen gegevens en vult ontbrekende onderdelen aan.
+// Controleert opgeslagen gegevens en vult ontbrekende onderdelen aan. Gegevens van vóór versie 1.0 (versie 1)
+// worden niet gelezen. Verandert de opbouw later, zet oudere gegevens dan hier om naar de nieuwe DATA_VERSION.
 function normalize(d) {
-  if (!d || !Array.isArray(d.decks)) return null;
+  if (!d || !Array.isArray(d.decks) || (d.version || 1) < 2) return null;
   d.settings = { ...freshDb().settings, ...(d.settings || {}) };
-  d.log ||= {};
-  d.events ||= [];
+  if (!Array.isArray(d.events)) d.events = [];
+  d.version = DATA_VERSION;
   // Alleen bekende waarden doorlaten: een back-up of kopie komt van buiten de app en kan aangepast zijn.
   if (!LANGS[d.settings.lang]) d.settings.lang = 'es';
   if (!['auto', 'light', 'dark'].includes(d.settings.theme)) d.settings.theme = 'auto';
@@ -129,17 +130,6 @@ function normalize(d) {
       if (!c.p || typeof c.p !== 'object') c.p = {};
     }
   }
-  if ((d.version || 1) < 2) {
-    // Gegevens met versie 1 omzetten naar versie 2: tempo per keer oefenen, leerstappen in kaarten.
-    for (const deck of d.decks) {
-      const o = deck.opts;
-      if ('newPerDay' in o) { o.newWords = o.newPerDay; delete o.newPerDay; }
-      if ('reviewsPerDay' in o) { o.maxReviews = o.reviewsPerDay; delete o.reviewsPerDay; }
-      delete o.learnSteps; delete o.relearnSteps;
-      delete deck.log; delete deck.extra;
-    }
-  }
-  d.version = DATA_VERSION;
   return d;
 }
 
@@ -609,12 +599,6 @@ function speak(text, lang = curLang()) {
   else speechSynthesis.speak(u);
 }
 
-// De iPhone laat de stem pas praten na een eerste tik. Een lege zin bij de eerste tik zet hem vrij, zodat ook het
-// automatisch voorlezen (dat niet direct uit een tik komt) werkt.
-document.addEventListener('touchend', () => {
-  if (isIos && 'speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance(' '));
-}, { once: true, passive: true });
-
 // Volumeknoppen op Android. Die regelen normaal het belvolume, behalve als er media speelt; de stem gebruikt het
 // mediavolume. Daarom speelt tijdens het oefenen een stil geluid door, zodat de volumeknoppen het volume van de stem regelen.
 let keepAlive = null;
@@ -769,31 +753,20 @@ function wordsIn(events) {
   return { words: m.size, clean, mistakes: m.size - clean };
 }
 
-// Woorden die je vandaag hebt geoefend. Uit de vastgelegde antwoorden, en uit de stand van elk woord:
-// wanneer een woord het laatst beantwoord is, volgt uit de pauze. Zo tellen ook woorden mee waarvan geen antwoorden
-// zijn vastgelegd. Van die woorden is niet bekend of ze meteen goed waren.
+// Woorden die je vandaag hebt geoefend, uit de vastgelegde antwoorden: per woord meteen goed of met een fout.
 function practicedToday(decks) {
-  const sod = startOfDay(Date.now()), eod = endOfDay(Date.now()), ids = new Set(decks.map(d => d.id));
-  const words = new Map();   // woord → true (meteen goed), false (met een fout), null (onbekend)
+  const sod = startOfDay(Date.now()), ids = new Set(decks.map(d => d.id));
+  const words = new Map();   // woord → true (meteen goed) of false (met een fout)
   for (const e of db.events) {
     if (e[EV.t] < sod || !counts(e) || !ids.has(e[EV.deck])) continue;
     const k = e[EV.deck] + '|' + e[EV.card];
     words.set(k, (words.get(k) ?? true) && isCorrect(e));
   }
-  for (const d of decks) for (const c of d.cards) {
-    const k = d.id + '|' + c.id;
-    if (words.has(k)) continue;
-    const today = Object.values(c.p || {}).some(st => st && !isNewSt(st) &&
-      (st.s === 'review' ? addDays(st.due, -st.ivl) === sod : st.due >= sod && st.due <= eod + DAY));
-    if (today) words.set(k, null);
-  }
-  const v = [...words.values()];
-  return { words: words.size, clean: v.filter(x => x === true).length, unknown: v.filter(x => x === null).length };
+  return { words: words.size, clean: [...words.values()].filter(Boolean).length };
 }
-// "Vandaag 16 woorden geoefend, 15 meteen goed." (meteen goed alleen als dat van alle woorden bekend is)
-const todayText = p => !p.words ? '' : p.unknown
-  ? tn(p.words, 'Vandaag {n} woord geoefend.', 'Vandaag {n} woorden geoefend.')
-  : tn(p.words, 'Vandaag {n} woord geoefend, {c} meteen goed.', 'Vandaag {n} woorden geoefend, {c} meteen goed.', { c: p.clean });
+// "Vandaag 16 woorden geoefend, 15 meteen goed."
+const todayText = p => !p.words ? '' :
+  tn(p.words, 'Vandaag {n} woord geoefend, {c} meteen goed.', 'Vandaag {n} woorden geoefend, {c} meteen goed.', { c: p.clean });
 
 // Hoe staan de woorden van een lijst ervoor, en wat staat er nu klaar?
 function deckWords(d) {
@@ -1308,40 +1281,34 @@ function wordStatus(deck, c) {
 
 const statsState = { period: '30', deck: 'all', year: new Date().getFullYear() };
 
-// De antwoorden (en oudere dagtellingen) binnen de gekozen taal en lijst.
+// De antwoorden binnen de gekozen taal en lijst.
 function statsData() {
   const decks = statsState.deck === 'all' ? langDecks() : [getDeck(statsState.deck)].filter(Boolean);
   const ids = new Set(decks.map(d => d.id));
   const events = db.events.filter(e => ids.has(e[EV.deck]) && counts(e));
-  // Oefenen met een eerdere versie van de app: daarvan is alleen het aantal kaarten per dag bekend (niet goed of fout).
-  const oldDays = statsState.deck === 'all' && curLang() === 'es'
-    ? Object.entries(db.log).filter(([k, v]) => ((v.reviews || 0) + (v.free || 0)) > 0)
-      .map(([k, v]) => ({ day: k, n: (v.reviews || 0) + (v.free || 0) })) : [];
-  return { decks, events, oldDays };
+  return { decks, events };
 }
 
-// Per dag: unieke woorden, hoeveel daarvan meteen goed en hoeveel met een fout. Oude dagtotalen (kaarten) apart.
-function perDay(events, oldDays) {
+// Per dag: unieke woorden, hoeveel daarvan meteen goed en hoeveel met een fout.
+function perDay(events) {
   const m = new Map();
   for (const e of events) {
     const k = dayKey(e[EV.t]);
-    if (!m.has(k)) m.set(k, { day: k, ev: [], old: 0 });
-    m.get(k).ev.push(e);
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(e);
   }
-  for (const d of oldDays) { if (!m.has(d.day)) m.set(d.day, { day: d.day, ev: [], old: 0 }); m.get(d.day).old += d.n; }
-  return [...m.values()].map(o => {
-    const w = wordsIn(o.ev);
-    return { day: o.day, n: w.words, ok: w.clean, bad: w.mistakes, answers: o.ev.length, ms: o.ev.reduce((n, e) => n + e[EV.ms], 0), old: o.old };
+  return [...m].map(([day, ev]) => {
+    const w = wordsIn(ev);
+    return { day, n: w.words, ok: w.clean, bad: w.mistakes, answers: ev.length, ms: ev.reduce((n, e) => n + e[EV.ms], 0) };
   }).sort((a, b) => a.day < b.day ? -1 : 1);
 }
 const dayTime = k => { const [y, mo, d] = k.split('-').map(Number); return new Date(y, mo - 1, d).getTime(); };
 
 function viewStats() {
-  const { decks, events: all, oldDays: allOld } = statsData();
+  const { decks, events: all } = statsData();
   const from = statsState.period === 'all' ? 0 : addDays(Date.now(), -Number(statsState.period) + 1);
   const events = all.filter(e => e[EV.t] >= from);
-  const oldDays = allOld.filter(d => dayTime(d.day) >= from);
-  const days = perDay(events, oldDays);
+  const days = perDay(events);
   const ww = wordsIn(events);
   const wordDays = days.reduce((n, d) => n + d.n, 0), cleanDays = days.reduce((n, d) => n + d.ok, 0);
   const time = events.reduce((n, e) => n + e[EV.ms], 0);
@@ -1369,7 +1336,7 @@ function viewStats() {
     ${filters}
     ${tiles}
     <h2>${t('Kalender')}</h2>
-    <div class="card">${calendarHtml(perDay(all, allOld))}</div>
+    <div class="card">${calendarHtml(perDay(all))}</div>
     <h2>${t('Geoefend')}</h2>
     <div class="card">${practiceChart(days)}</div>
     <h2>${t('Onthouden')}</h2>
@@ -1385,13 +1352,12 @@ function tile(label, value, sub = '') {
   return `<div class="tile"><div class="tile-label">${label}</div><div class="tile-value">${value}</div>${sub ? `<div class="tile-sub">${sub}</div>` : ''}</div>`;
 }
 
-// Kalender: twaalf kleine maandkaartjes. Hoe donkerder, hoe meer kaarten die dag.
+// Kalender: twaalf kleine maandkaartjes. Hoe donkerder, hoe meer woorden die dag.
 function calendarHtml(days) {
   const y = statsState.year;
   const byDay = new Map(days.map(d => [d.day, d]));
   const inYear = days.filter(d => d.day.startsWith(y + '-'));
-  const act = d => d.n || Math.ceil(d.old / 2);   // oude dagen: alleen kaarten bekend, ongeveer 2 kaarten per woord
-  const max = Math.max(1, ...inYear.map(act));
+  const max = Math.max(1, ...inYear.map(d => d.n));
   const level = n => n ? Math.min(5, Math.ceil(n / max * 5)) : 0;
   const months = Array.from({ length: 12 }, (_, m) => {
     const name = new Date(y, m, 1).toLocaleDateString(loc(), { month: 'short' }).replace('.', '');
@@ -1401,8 +1367,8 @@ function calendarHtml(days) {
     for (let d = 1; d <= len; d++) {
       const k = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const o = byDay.get(k);
-      const tip = o ? `${new Date(y, m, d).toLocaleDateString(loc(), { weekday: 'short', day: 'numeric', month: 'long' })}|${o.n ? tn(o.n, '{n} woord', '{n} woorden') + ' · ' + t('{c} meteen goed', { c: o.ok }) : t('geoefend met een vorige versie van de app')}` : '';
-      cells += `<span class="cal-day l${o ? level(act(o)) : 0}" ${o ? `data-tip="${esc(tip)}" tabindex="0"` : ''}></span>`;
+      const tip = o ? `${new Date(y, m, d).toLocaleDateString(loc(), { weekday: 'short', day: 'numeric', month: 'long' })}|${tn(o.n, '{n} woord', '{n} woorden') + ' · ' + t('{c} meteen goed', { c: o.ok })}` : '';
+      cells += `<span class="cal-day l${o ? level(o.n) : 0}" ${o ? `data-tip="${esc(tip)}" tabindex="0"` : ''}></span>`;
     }
     return `<div class="cal-month"><div class="cal-name">${name}</div><div class="cal-grid">${cells}</div></div>`;
   }).join('');
@@ -1415,7 +1381,7 @@ function calendarHtml(days) {
     <div class="cal">${months}</div>
     <div class="cal-legend"><span>${t('Minder')}</span>${[1, 2, 3, 4, 5].map(l => `<span class="cal-day l${l}"></span>`).join('')}<span>${t('Meer')}</span></div>
     <p class="muted small" style="margin:8px 0 0">${inYear.length ? t('{d} geoefend in {y}.', { d: tn(inYear.length, '{n} dag', '{n} dagen'), y }) : t('Nog niet geoefend in {y}.', { y })}</p>
-    ${inYear.length ? tableDetails([t('Dag'), t('Woorden'), t('Meteen goed')], inYear.slice().reverse().map(d => [fmtDate(dayTime(d.day)), d.n || '–', d.n ? pct(d.ok, d.n) : '–'])) : ''}`;
+    ${inYear.length ? tableDetails([t('Dag'), t('Woorden'), t('Meteen goed')], inYear.slice().reverse().map(d => [fmtDate(dayTime(d.day)), d.n, pct(d.ok, d.n)])) : ''}`;
 }
 
 // Goed en fout per oefendag (bij meer dan 21 dagen per week), als gestapelde kolommen.

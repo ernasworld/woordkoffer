@@ -1,4 +1,4 @@
-# Woordkoffer 1.1.3
+# Woordkoffer 1.1.4
 
 Pak je woorden in voor op reis. Woordkoffer is een flashcard-app om de woorden van een taal te leren, met herhaling op het juiste moment. De naam knipoogt naar het spel "Ik ga op reis en ik neem mee".
 
